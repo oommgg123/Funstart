@@ -9,6 +9,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -67,8 +68,30 @@ public class LogListener implements Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerDamaged(EntityDamageByEntityEvent event) {
+        if (event.isCancelled()) return;
+        if (!(event.getEntity() instanceof Player victim)) return;
+        double remaining = Math.max(0, victim.getHealth() - event.getFinalDamage());
+        logManager.logPlayerDamageTaken(victim, event.getFinalDamage(), event.getCause(), remaining);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerDeath(PlayerDeathEvent event) {
-        // Reset multi-target tracking periodically on death
+        Player player = event.getEntity();
+        String deathMsg = event.getDeathMessage() != null ? event.getDeathMessage() : "?";
+        org.bukkit.event.entity.EntityDamageEvent lastDamage = player.getLastDamageCause();
+        EntityDamageEvent.DamageCause cause = lastDamage != null ? lastDamage.getCause() : EntityDamageEvent.DamageCause.CUSTOM;
+        logManager.logPlayerDeath(player, deathMsg, cause);
         logManager.resetAttackTracking();
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerDamagedByAnything(org.bukkit.event.entity.EntityDamageEvent event) {
+        if (event.isCancelled()) return;
+        if (!(event.getEntity() instanceof Player victim)) return;
+        // Already handled in onPlayerDamaged for entity-on-player damage
+        if (event instanceof EntityDamageByEntityEvent) return;
+        double remaining = Math.max(0, victim.getHealth() - event.getFinalDamage());
+        logManager.logPlayerDamageTaken(victim, event.getFinalDamage(), event.getCause(), remaining);
     }
 }

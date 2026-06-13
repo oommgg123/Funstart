@@ -6,7 +6,10 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
@@ -57,15 +60,48 @@ public class LogManager {
     private final File logsDir;
     private final Map<String, File> currentArchive = new HashMap<>();
     private final Map<String, Integer> archivePart = new HashMap<>();
+    private final Map<String, BufferedWriter> openWriters = new HashMap<>();
+
+    // Cached timestamp, updated every 20 ticks
+    private String cachedNow = "";
+    private int tickCounter = 0;
 
     // Attack tracking
     private final Map<UUID, List<Long>> attackTimes = new HashMap<>();
     private final Map<UUID, Set<UUID>> attackTargets = new HashMap<>();
 
+    // Damage cooldown: skip logging same player damage within 500ms
+    private final Map<UUID, Long> lastDamageLog = new HashMap<>();
+
     public LogManager(FunstartPlugin plugin) {
         this.plugin = plugin;
         this.logsDir = new File(plugin.getDataFolder(), "logs");
         initDirectories();
+        startTickUpdater();
+    }
+
+    private void startTickUpdater() {
+        Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            cachedNow = TS_FMT.format(new Date());
+            tickCounter++;
+            // Flush writers every 200 ticks (10s)
+            if (tickCounter % 200 == 0) {
+                flushAllWriters();
+            }
+        }, 1L, 1L);
+    }
+
+    private void flushAllWriters() {
+        for (BufferedWriter w : openWriters.values()) {
+            try { w.flush(); } catch (IOException ignored) {}
+        }
+    }
+
+    private void closeAllWriters() {
+        for (BufferedWriter w : openWriters.values()) {
+            try { w.close(); } catch (IOException ignored) {}
+        }
+        openWriters.clear();
     }
 
     private void initDirectories() {
@@ -77,7 +113,8 @@ public class LogManager {
     }
 
     private String now() {
-        return TS_FMT.format(new Date());
+        if (cachedNow.isEmpty()) cachedNow = TS_FMT.format(new Date());
+        return cachedNow;
     }
 
     private String today() {
@@ -92,7 +129,6 @@ public class LogManager {
         File f = currentArchive.get(key);
         if (f != null && f.exists() && f.length() < MAX_FILE_SIZE) return f;
 
-        // Find next available part
         File dir = new File(logsDir, category + "/archive");
         int part = archivePart.getOrDefault(key, 0) + 1;
         File candidate;
@@ -112,13 +148,28 @@ public class LogManager {
         return new File(new File(logsDir, category + "/other"), date + ".log");
     }
 
-    private void appendLine(File file, String line) {
+    private BufferedWriter getWriter(File file) {
+        String path = file.getAbsolutePath();
+        BufferedWriter w = openWriters.get(path);
+        if (w != null) return w;
+
         try {
             file.getParentFile().mkdirs();
-            try (BufferedWriter w = new BufferedWriter(new FileWriter(file, true))) {
-                w.write(line);
-                w.newLine();
-            }
+            w = new BufferedWriter(new FileWriter(file, true));
+            openWriters.put(path, w);
+            return w;
+        } catch (IOException e) {
+            plugin.getLogger().warning("日志打开失败 (" + file + "): " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void appendLine(File file, String line) {
+        try {
+            BufferedWriter w = getWriter(file);
+            if (w == null) return;
+            w.write(line);
+            w.newLine();
         } catch (IOException e) {
             plugin.getLogger().warning("日志写入失败 (" + file + "): " + e.getMessage());
         }
@@ -132,13 +183,10 @@ public class LogManager {
         appendLine(getOtherFile(category), line);
     }
 
-    private void logBoth(String category, String line) {
-        logArchive(category, line);
-        logOther(category, line);
-    }
-
-    /** Called on plugin disable: copy latest from archive to latest/current.log for each category */
+    /** Called on plugin disable: flush all writers, then copy latest archive to current.log */
     public void onDisable() {
+        closeAllWriters();
+
         for (String cat : CATEGORIES) {
             File latestDir = new File(logsDir, cat + "/latest");
             File latestFile = new File(latestDir, "current.log");
@@ -169,48 +217,67 @@ public class LogManager {
 
     // ========== playerChunk ==========
 
-    public void logBlockBreak(Player player, Block block, boolean isOp) {
-        String ts = now();
-        Location loc = block.getLocation();
-        String world = loc.getWorld() != null ? loc.getWorld().getName() : "?";
-        String coords = loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
-        Material type = block.getType();
-        String matName = type.name();
-        String claimInfo = getClaimInfo(loc);
+    public void logBlockBreak(Player player, Block block, boolean isOp, ItemStack tool) {
+        try {
+            String ts = now();
+            Location loc = block.getLocation();
+            String world = loc.getWorld() != null ? loc.getWorld().getName() : "?";
+            String coords = loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
+            Material type = block.getType();
+            String matName = type.name();
+            String claimInfo = getClaimInfo(loc);
 
-        String line = String.format("[%s] %s [%s] 破坏了 %s 在 %s (%s)%s",
-            ts, player.getName(), player.getUniqueId(), matName, world, coords, claimInfo);
-        logArchive("playerChunk", line);
+            String toolInfo = "空手";
+            if (tool != null && tool.getType() != Material.AIR) {
+                String fstId = plugin.getFstItemIdManager().getOrCreateItemId(tool);
+                toolInfo = tool.getType().name() + " [fst:" + fstId + "]";
+            }
 
-        // OTHER conditions
-        boolean isDangerous = DANGEROUS.contains(matName);
-        boolean isValuable = VALUABLE.contains(matName);
-        boolean noClaimPerm = claimInfo.isEmpty() && plugin.getClaimManager().getClaimAt(loc) != null && !isOp;
-        boolean isContainer = isContainerBlock(type);
-        boolean claimContainer = isContainer && !claimInfo.isEmpty();
+            String line = String.format("[%s] %s [%s] 使用 %s 挖掘了 %s 在 %s (%s)%s",
+                ts, player.getName(), player.getUniqueId(), toolInfo, matName, world, coords, claimInfo);
+            logArchive("playerChunk", line);
 
-        if (isDangerous || isValuable || noClaimPerm || claimContainer) {
-            logOther("playerChunk", "§c[!] " + line);
+            boolean isDangerous = DANGEROUS.contains(matName);
+            boolean isValuable = VALUABLE.contains(matName);
+            boolean noClaimPerm = claimInfo.isEmpty() && plugin.getClaimManager().getClaimAt(loc) != null && !isOp;
+            boolean isContainer = isContainerBlock(type);
+            boolean claimContainer = isContainer && !claimInfo.isEmpty();
+
+            if (isDangerous || isValuable || noClaimPerm || claimContainer) {
+                logOther("playerChunk", "§c[!] " + line);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("logBlockBreak 异常: " + e.getMessage());
         }
     }
 
-    public void logBlockPlace(Player player, Block block, boolean isOp) {
-        String ts = now();
-        Location loc = block.getLocation();
-        String world = loc.getWorld() != null ? loc.getWorld().getName() : "?";
-        String coords = loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
-        Material type = block.getType();
-        String matName = type.name();
-        String claimInfo = getClaimInfo(loc);
+    public void logBlockPlace(Player player, Block block, boolean isOp, ItemStack tool) {
+        try {
+            String ts = now();
+            Location loc = block.getLocation();
+            String world = loc.getWorld() != null ? loc.getWorld().getName() : "?";
+            String coords = loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
+            Material type = block.getType();
+            String matName = type.name();
+            String claimInfo = getClaimInfo(loc);
 
-        String line = String.format("[%s] %s [%s] 放置了 %s 在 %s (%s)%s",
-            ts, player.getName(), player.getUniqueId(), matName, world, coords, claimInfo);
-        logArchive("playerChunk", line);
+            String toolInfo = "空手";
+            if (tool != null && tool.getType() != Material.AIR) {
+                String fstId = plugin.getFstItemIdManager().getOrCreateItemId(tool);
+                toolInfo = tool.getType().name() + " [fst:" + fstId + "]";
+            }
 
-        boolean isDangerous = DANGEROUS.contains(matName);
-        boolean noClaimPerm = claimInfo.isEmpty() && plugin.getClaimManager().getClaimAt(loc) != null && !isOp;
-        if (isDangerous || noClaimPerm) {
-            logOther("playerChunk", "§c[!] " + line);
+            String line = String.format("[%s] %s [%s] 使用 %s 放置了 %s 在 %s (%s)%s",
+                ts, player.getName(), player.getUniqueId(), toolInfo, matName, world, coords, claimInfo);
+            logArchive("playerChunk", line);
+
+            boolean isDangerous = DANGEROUS.contains(matName);
+            boolean noClaimPerm = claimInfo.isEmpty() && plugin.getClaimManager().getClaimAt(loc) != null && !isOp;
+            if (isDangerous || noClaimPerm) {
+                logOther("playerChunk", "§c[!] " + line);
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("logBlockPlace 异常: " + e.getMessage());
         }
     }
 
@@ -363,6 +430,48 @@ public class LogManager {
     /** Reset multi-target counter per player periodically */
     public void resetAttackTracking() {
         attackTargets.clear();
+    }
+
+    // ========== playerDamageTaken ==========
+
+    public void logPlayerDamageTaken(Player victim, double damage, EntityDamageEvent.DamageCause cause, double remainingHealth) {
+        // Throttle: skip if we logged same player within 500ms
+        UUID uid = victim.getUniqueId();
+        long nowMs = System.currentTimeMillis();
+        Long last = lastDamageLog.get(uid);
+        if (last != null && nowMs - last < 500) return;
+        lastDamageLog.put(uid, nowMs);
+
+        try {
+            Location loc = victim.getLocation();
+            String world = loc.getWorld() != null ? loc.getWorld().getName() : "?";
+            String coords = loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
+
+            String line = String.format("[%s] %s [%s] 受到伤害 %.1f 来源: %s 剩余血量: %.1f 在 %s (%s)",
+                now(), victim.getName(), uid, damage, cause.name(), remainingHealth, world, coords);
+            logArchive("playerAttack", line);
+
+            if (damage >= 10) {
+                logOther("playerAttack", "§c[!] " + line + " [高伤害]");
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("logPlayerDamageTaken 异常: " + e.getMessage());
+        }
+    }
+
+    // ========== playerDeath ==========
+
+    public void logPlayerDeath(Player player, String deathMessage, EntityDamageEvent.DamageCause cause) {
+        String ts = now();
+        Location loc = player.getLocation();
+        String world = loc.getWorld() != null ? loc.getWorld().getName() : "?";
+        String coords = loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
+        UUID puid = player.getUniqueId();
+
+        String line = String.format("[%s] %s [%s] 死亡 原因: %s 死亡消息: %s 在 %s (%s)",
+            ts, player.getName(), puid, cause.name(), deathMessage, world, coords);
+        logArchive("playerAttack", line);
+        logOther("playerAttack", "§c[!] " + line);
     }
 
     // ========== Helpers ==========
