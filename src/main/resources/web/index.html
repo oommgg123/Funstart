@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Funstart 服务器状态</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f0f1a; color: #e0e0e0; min-height: 100vh; }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+h1 { color: #7c5cbf; font-size: 24px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+h1 small { font-size: 14px; color: #888; font-weight: normal; }
+.card { background: #1a1a2e; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #2a2a4a; }
+.card h2 { font-size: 16px; color: #9b7fd4; margin-bottom: 12px; border-bottom: 1px solid #2a2a4a; padding-bottom: 8px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.stat-item { background: #16213e; border-radius: 8px; padding: 12px; text-align: center; }
+.stat-item .label { font-size: 12px; color: #888; margin-bottom: 4px; }
+.stat-item .value { font-size: 20px; font-weight: bold; color: #fff; }
+.stat-item .value.green { color: #4ade80; }
+.stat-item .value.yellow { color: #facc15; }
+.stat-item .value.red { color: #f87171; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #2a2a4a; }
+th { color: #9b7fd4; font-weight: 600; background: #16213e; position: sticky; top: 0; }
+tr:hover { background: #1e1e3a; }
+.player-name { color: #7c5cbf; font-weight: 600; cursor: pointer; }
+.player-name:hover { text-decoration: underline; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge.online { background: #14532d; color: #4ade80; }
+.badge.offline { background: #450a0a; color: #f87171; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.status-dot.green { background: #4ade80; }
+.status-dot.yellow { background: #facc15; }
+.status-dot.red { background: #f87171; }
+.tps-bar { height: 4px; border-radius: 2px; margin-top: 4px; }
+.tps-bar.green { background: #4ade80; }
+.tps-bar.yellow { background: #facc15; }
+.tps-bar.red { background: #f87171; }
+.tooltip { display: none; position: fixed; z-index: 1000; background: #1a1a2e; border: 1px solid #3a3a5a; border-radius: 8px; padding: 16px; min-width: 300px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+.tooltip.show { display: block; }
+.tooltip h3 { color: #9b7fd4; margin-bottom: 8px; }
+.tooltip .row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+.tooltip .row .l { color: #888; }
+.tooltip .row .r { color: #e0e0e0; }
+.loading { text-align: center; padding: 40px; color: #888; }
+.error { color: #f87171; text-align: center; padding: 20px; }
+.refresh-btn { background: #7c5cbf; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; margin-left: auto; }
+.refresh-btn:hover { background: #6a4dab; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.card { animation: fadeIn 0.3s ease; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Funstart 服务器状态 <small id="refreshTime"></small> <button class="refresh-btn" onclick="refresh()">刷新</button></h1>
+
+  <div class="card" id="statusCard">
+    <h2>服务器信息</h2>
+    <div class="stat-grid" id="statusGrid"></div>
+  </div>
+
+  <div class="card">
+    <h2>在线玩家</h2>
+    <div id="playerTableWrapper"><div class="loading">加载中...</div></div>
+  </div>
+
+  <div class="card">
+    <h2>点数增加榜 (Top 10)</h2>
+    <div id="rankingWrapper"><div class="loading">加载中...</div></div>
+  </div>
+</div>
+
+<div class="tooltip" id="playerTooltip"></div>
+
+<script>
+const API = '';
+let playersCache = {};
+
+async function fetchJSON(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+function formatTime(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return h + 'h ' + m + 'm';
+  if (m > 0) return m + 'm ' + s + 's';
+  return s + 's';
+}
+
+function tpsColor(tps) {
+  if (tps >= 19) return 'green';
+  if (tps >= 15) return 'yellow';
+  return 'red';
+}
+
+async function loadStatus() {
+  const data = await fetchJSON(API + '/api/status');
+  const grid = document.getElementById('statusGrid');
+  grid.innerHTML = '';
+  const items = [
+    { label: '在线玩家', value: data.onlinePlayers + '/' + data.maxPlayers, cls: 'green' },
+    { label: 'MOTD', value: data.motd },
+    { label: '服务端版本', value: data.version },
+    { label: '游戏版本', value: data.gameVersion },
+    { label: 'TPS (1m)', value: data.tps1m, cls: tpsColor(parseFloat(data.tps1m)) },
+    { label: 'TPS (5m)', value: data.tps5m, cls: tpsColor(parseFloat(data.tps5m)) },
+    { label: 'TPS (15m)', value: data.tps15m, cls: tpsColor(parseFloat(data.tps15m)) },
+    { label: '内存使用', value: data.usedMemory + 'MB / ' + data.totalMemory + 'MB' },
+    { label: '世界数量', value: data.worlds },
+  ];
+  for (const item of items) {
+    const div = document.createElement('div');
+    div.className = 'stat-item';
+    div.innerHTML = '<div class="label">' + item.label + '</div><div class="value' + (item.cls ? ' ' + item.cls : '') + '">' + item.value + '</div>';
+    grid.appendChild(div);
+  }
+}
+
+async function loadPlayers() {
+  const players = await fetchJSON(API + '/api/players');
+  playersCache = {};
+  for (const p of players) playersCache[p.name] = p;
+  const wrap = document.getElementById('playerTableWrapper');
+  if (players.length === 0) {
+    wrap.innerHTML = '<div style="text-align:center;padding:20px;color:#888;">暂无在线玩家</div>';
+    return;
+  }
+  let html = '<table><thead><tr><th>玩家</th><th>血量</th><th>等级</th><th>坐标</th><th>世界</th><th>Ping</th><th>在线时长</th><th>总获得</th></tr></thead><tbody>';
+  for (const p of players) {
+    html += '<tr><td><span class="player-name" onclick="showTooltip(event,\'' + p.name + '\')">' + p.name + '</span></td>'
+      + '<td>' + p.health + '/' + p.maxHealth + '</td>'
+      + '<td>' + p.level + '</td>'
+      + '<td>' + Math.floor(p.x) + ' ' + Math.floor(p.y) + ' ' + Math.floor(p.z) + '</td>'
+      + '<td>' + p.world + '</td>'
+      + '<td>' + p.ping + 'ms</td>'
+      + '<td>' + formatTime(p.playTime) + '</td>'
+      + '<td>' + p.totalPointsEarned + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+async function loadRanking() {
+  const players = await fetchJSON(API + '/api/ranking');
+  const wrap = document.getElementById('rankingWrapper');
+  if (players.length === 0) {
+    wrap.innerHTML = '<div style="text-align:center;padding:20px;color:#888;">暂无数据</div>';
+    return;
+  }
+  let html = '<table><thead><tr><th>#</th><th>玩家</th><th>总获得点数</th><th>总伤害</th><th>血量</th><th>等级</th><th>在线时长</th></tr></thead><tbody>';
+  for (const p of players.slice(0, 10)) {
+    html += '<tr><td>' + p.rank + '</td>'
+      + '<td><span class="player-name" onclick="showTooltip(event,\'' + p.name + '\')">' + p.name + '</span></td>'
+      + '<td>' + p.totalPointsEarned + '</td>'
+      + '<td>' + p.totalDamageDealt + '</td>'
+      + '<td>' + (p.health || '?') + '</td>'
+      + '<td>' + (p.level || '?') + '</td>'
+      + '<td>' + formatTime(p.playTime || 0) + '</td></tr>';
+  }
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+function showTooltip(event, name) {
+  const tip = document.getElementById('playerTooltip');
+  const p = playersCache[name];
+  if (!p) { tip.classList.remove('show'); return; }
+  tip.innerHTML = '<h3>' + p.displayName + '</h3>'
+    + '<div class="row"><span class="l">血量</span><span class="r">' + p.health + '/' + p.maxHealth + '</span></div>'
+    + '<div class="row"><span class="l">饥饿值</span><span class="r">' + p.foodLevel + ' (' + p.saturation + ')</span></div>'
+    + '<div class="row"><span class="l">等级</span><span class="r">' + p.level + ' (' + (p.expProgress * 100).toFixed(0) + '%)</span></div>'
+    + '<div class="row"><span class="l">游戏模式</span><span class="r">' + p.gameMode + '</span></div>'
+    + '<div class="row"><span class="l">坐标</span><span class="r">' + Math.floor(p.x) + ' ' + Math.floor(p.y) + ' ' + Math.floor(p.z) + '</span></div>'
+    + '<div class="row"><span class="l">世界</span><span class="r">' + p.world + '</span></div>'
+    + '<div class="row"><span class="l">群系</span><span class="r">' + p.biome + '</span></div>'
+    + '<div class="row"><span class="l">Ping</span><span class="r">' + p.ping + 'ms</span></div>'
+    + '<div class="row"><span class="l">在线时长</span><span class="r">' + formatTime(p.playTime) + '</span></div>'
+    + '<div class="row"><span class="l">行走距离</span><span class="r">' + p.walkDistance + 'm</span></div>'
+    + '<div class="row"><span class="l">跳跃次数</span><span class="r">' + p.jumps + '</span></div>'
+    + '<div class="row"><span class="l">击杀怪物</span><span class="r">' + p.mobKills + '</span></div>'
+    + '<div class="row"><span class="l">死亡次数</span><span class="r">' + p.deaths + '</span></div>'
+    + '<div class="row"><span class="l">玩家击杀</span><span class="r">' + p.playerKills + '</span></div>'
+    + '<div class="row"><span class="l">破坏方块</span><span class="r">' + p.blocksBroken + '</span></div>'
+    + '<div class="row"><span class="l">总获得点数</span><span class="r">' + p.totalPointsEarned + '</span></div>'
+    + '<div class="row"><span class="l">总伤害</span><span class="r">' + p.totalDamageDealt + '</span></div>'
+    + '<div class="row"><span class="l">自动治疗</span><span class="r">' + (p.autoHeal ? '开启' : '关闭') + '</span></div>'
+    + '<div class="row"><span class="l">自动修复</span><span class="r">' + (p.autoFix ? '开启' : '关闭') + '</span></div>'
+    + '<div class="row"><span class="l">连锁挖矿</span><span class="r">' + (p.chainEnabled ? '开启' : '关闭') + '</span></div>'
+    + '<div class="row"><span class="l">连锁上限</span><span class="r">' + p.maxChainBlocks + '</span></div>'
+    + '<div class="row"><span class="l">自动收获</span><span class="r">' + (p.harvestEnabled ? '开启' : '关闭') + '</span></div>'
+    + (p.married ? '<div class="row"><span class="l">伴侣</span><span class="r">' + p.spouse + '</span></div>' : '');
+  tip.classList.add('show');
+  const x = Math.min(event.clientX, window.innerWidth - 320);
+  const y = Math.min(event.clientY, window.innerHeight - 400);
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.player-name')) {
+    document.getElementById('playerTooltip').classList.remove('show');
+  }
+});
+
+async function refresh() {
+  try {
+    await Promise.all([loadStatus(), loadPlayers(), loadRanking()]);
+    document.getElementById('refreshTime').textContent = '更新于 ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('statusGrid').innerHTML = '<div class="error">加载失败: ' + e.message + '</div>';
+  }
+}
+
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
