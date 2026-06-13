@@ -27,6 +27,7 @@ import moe.hinakusoft.funstart.custom.FSTFood;
 import moe.hinakusoft.funstart.manager.ClaimManager;
 import moe.hinakusoft.funstart.manager.FSTActionBar;
 import moe.hinakusoft.funstart.manager.LogManager;
+import moe.hinakusoft.funstart.manager.FstItemIdManager;
 import moe.hinakusoft.funstart.manager.RestApiServer;
 import moe.hinakusoft.funstart.manager.PlayerDataManager;
 import moe.hinakusoft.funstart.manager.TpaManager;
@@ -70,6 +71,7 @@ extends JavaPlugin implements Listener {
     private moe.hinakusoft.funstart.manager.MarketManager marketManager;
     private moe.hinakusoft.funstart.listener.MarketGuiListener marketGuiListener;
     private LogManager logManager;
+    private FstItemIdManager fstItemIdManager;
     private RestApiServer restApiServer;
 
     public void onEnable() {
@@ -114,6 +116,7 @@ extends JavaPlugin implements Listener {
         this.getServer().getPluginManager().registerEvents(new moe.hinakusoft.funstart.listener.NbtEditGuiListener(this), this);
         this.getServer().getPluginManager().registerEvents(new moe.hinakusoft.funstart.listener.MarketGuiListener(this), this);
         this.logManager = new LogManager(this);
+        this.fstItemIdManager = new FstItemIdManager(getDataFolder());
         this.getServer().getPluginManager().registerEvents(new moe.hinakusoft.funstart.listener.LogListener(this), this);
         this.getServer().getPluginManager().registerEvents(prankListener, this);
         this.getServer().getPluginManager().registerEvents(this, this);
@@ -237,6 +240,7 @@ extends JavaPlugin implements Listener {
     public moe.hinakusoft.funstart.manager.MarketManager getMarketManager() { return marketManager; }
     public moe.hinakusoft.funstart.listener.MarketGuiListener getMarketGuiListener() { return marketGuiListener; }
     public LogManager getLogManager() { return logManager; }
+    public FstItemIdManager getFstItemIdManager() { return fstItemIdManager; }
     public Map<UUID, PendingChatAction> getPendingChatActions() { return pendingChatActions; }
 
     public void addPendingChatAction(UUID uuid, PendingChatAction.Type type, Object data) {

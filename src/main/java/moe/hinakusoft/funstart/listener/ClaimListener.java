@@ -61,7 +61,7 @@ public class ClaimListener implements Listener {
                 player.sendMessage("§c你没有权限在此区域破坏方块");
             }
         }
-        plugin.getLogManager().logBlockBreak(player, event.getBlock(), player.isOp());
+        plugin.getLogManager().logBlockBreak(player, event.getBlock(), player.isOp(), player.getInventory().getItemInMainHand());
     }
 
     @EventHandler
@@ -85,7 +85,7 @@ public class ClaimListener implements Listener {
                 player.sendMessage("§c你没有权限在此区域放置方块");
             }
         }
-        plugin.getLogManager().logBlockPlace(player, event.getBlock(), player.isOp());
+        plugin.getLogManager().logBlockPlace(player, event.getBlock(), player.isOp(), player.getInventory().getItemInMainHand());
     }
 
     @EventHandler
