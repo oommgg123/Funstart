@@ -155,9 +155,14 @@ public class MarketGuiListener implements Listener {
     private void handleConfirmClick(Player player, int slot) {
         if (slot == 11) {
             BuyingSession bs = buyingSessions.get(player.getUniqueId());
-            if (bs == null) { player.closeInventory(); return; }
+            if (bs == null) {
+                plugin.getLogger().warning("[市场] " + player.getName() + " 的购买会话为空");
+                player.closeInventory();
+                return;
+            }
             player.closeInventory();
             executePurchase(player, bs);
+            plugin.getLogger().info("[市场] " + player.getName() + " 购买成功: " + bs.marketItem.getItemData().toItemStack().getType().name() + " x" + bs.quantity);
         } else if (slot == 15 || slot == 26) {
             player.closeInventory();
             buyingSessions.remove(player.getUniqueId());
@@ -300,7 +305,10 @@ public class MarketGuiListener implements Listener {
     public void handleBuyChat(Player player, String msg, FunstartPlugin.PendingChatAction action) {
         UUID uid = player.getUniqueId();
         BuyingSession bs = buyingSessions.get(uid);
-        if (bs == null) return;
+        if (bs == null) {
+            player.sendMessage("§c购买已超时，请重新选择物品");
+            return;
+        }
 
         try {
             int qty = Integer.parseInt(msg.trim());
@@ -331,8 +339,9 @@ public class MarketGuiListener implements Listener {
 
             bs.quantity = qty;
 
-            // Open confirm GUI
+            // Open confirm GUI and clean up chat action
             openBuyConfirm(player, mi, qty, bs.listIndex, totalCost);
+            plugin.removePendingChatAction(uid);
         } catch (NumberFormatException e) {
             player.sendMessage("§c请输入有效数字");
         }

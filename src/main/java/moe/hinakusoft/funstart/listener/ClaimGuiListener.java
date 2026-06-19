@@ -31,7 +31,7 @@ public class ClaimGuiListener implements Listener {
 
     public static void openMain(Player player, FunstartPlugin plugin) {
         Inventory inv = Bukkit.createInventory(new ClaimHolder(player), 27, "§6领地管理");
-        ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(player.getUniqueId());
+        ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(plugin.getEffectiveUuid(player));
 
         if (claim == null) {
             inv.setItem(11, makeItem(Material.GRASS_BLOCK, "§a§l创建领地",
@@ -76,7 +76,7 @@ public class ClaimGuiListener implements Listener {
     }
 
     public static void openTrustedList(Player player, FunstartPlugin plugin) {
-        ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(player.getUniqueId());
+        ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(plugin.getEffectiveUuid(player));
         if (claim == null) {
             player.sendMessage("§c你没有领地");
             return;
@@ -112,7 +112,8 @@ public class ClaimGuiListener implements Listener {
 
         if (holder.getView() == ClaimHolder.View.MAIN) {
             if (slot == 11) {
-                ClaimRegion existing = plugin.getClaimManager().getClaimByOwner(player.getUniqueId());
+                UUID effUuid = plugin.getEffectiveUuid(player);
+                ClaimRegion existing = plugin.getClaimManager().getClaimByOwner(effUuid);
                 if (existing == null) {
                     // Create claim
                     player.closeInventory();
@@ -120,20 +121,20 @@ public class ClaimGuiListener implements Listener {
                 } else {
                     // Delete claim
                     player.closeInventory();
-                    plugin.getClaimManager().deleteClaim(player.getUniqueId());
+                    plugin.getClaimManager().deleteClaim(effUuid);
                     player.sendMessage("§e[Funstart] §a已删除你的领地");
                 }
             } else if (slot == 13) {
                 openTrustedList(player, plugin);
             } else if (slot == 15) {
-                if (plugin.getClaimManager().getClaimByOwner(player.getUniqueId()) == null) return;
+                if (plugin.getClaimManager().getClaimByOwner(plugin.getEffectiveUuid(player)) == null) return;
                 // Add trusted - use chat
                 player.closeInventory();
                 plugin.addPendingChatAction(player.getUniqueId(),
                     FunstartPlugin.PendingChatAction.Type.ADD_TRUSTED, null);
                 player.sendMessage("§a请输入要添加的信任人玩家名:");
             } else if (slot == 21 || slot == 22) {
-                ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(player.getUniqueId());
+                ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(plugin.getEffectiveUuid(player));
                 if (claim == null) return;
                 if (slot == 21) claim.setAllowTnt(!claim.isAllowTnt());
                 if (slot == 22) claim.setAllowCreeper(!claim.isAllowCreeper());
@@ -148,7 +149,7 @@ public class ClaimGuiListener implements Listener {
                 return;
             }
             if (slot < 0 || slot >= 45) return;
-            ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(player.getUniqueId());
+            ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(plugin.getEffectiveUuid(player));
             if (claim == null) return;
             List<UUID> trusts = new ArrayList<>(claim.getTrustedPlayers());
             if (slot < trusts.size()) {

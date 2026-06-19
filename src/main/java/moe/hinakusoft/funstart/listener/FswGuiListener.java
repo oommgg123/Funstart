@@ -52,7 +52,7 @@ public class FswGuiListener implements Listener {
         meta.setDisplayName("§b" + player.getName());
         int warpCount = plugin.getWarpManager().getAvailableWarps(player).size();
         meta.setLore(List.of("§7可用传送点: §e" + warpCount,
-            "§7拥有的传送点: §e" + plugin.getWarpManager().getOwnWarps(player.getUniqueId()).size()));
+            "§7拥有的传送点: §e" + plugin.getWarpManager().getOwnWarps(plugin.getEffectiveUuid(player)).size()));
         head.setItemMeta(meta);
         inv.setItem(22, head);
 
@@ -60,14 +60,15 @@ public class FswGuiListener implements Listener {
     }
 
     public static void openTeleportList(Player player, FunstartPlugin plugin, int page, boolean deleteMode) {
-        ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(player.getUniqueId());
+        UUID effUuid = plugin.getEffectiveUuid(player);
+        ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(effUuid);
 
         List<WarpPoint> list = new ArrayList<>();
         if (claim != null) {
             double cx = (claim.getX1() + claim.getX2()) / 2.0;
             double cy = claim.getY1();
             double cz = (claim.getZ1() + claim.getZ2()) / 2.0;
-            list.add(new WarpPoint("__claim__", "§d我的领地", player.getUniqueId(),
+            list.add(new WarpPoint("__claim__", "§d我的领地", effUuid,
                 claim.getWorldName(), cx, cy, cz, 0f, 0f));
         }
         list.addAll(plugin.getWarpManager().getAvailableWarps(player));
@@ -88,7 +89,7 @@ public class FswGuiListener implements Listener {
         for (int i = start; i < end; i++) {
             WarpPoint w = list.get(i);
             boolean isClaim = w.getId().equals("__claim__");
-            boolean isShared = !isClaim && !w.getOwner().equals(player.getUniqueId());
+            boolean isShared = !isClaim && !w.getOwner().equals(plugin.getEffectiveUuid(player));
 
             Material mat;
             if (isClaim) {
@@ -161,7 +162,7 @@ public class FswGuiListener implements Listener {
     }
 
     public static void openShareSelection(Player player, FunstartPlugin plugin) {
-        List<WarpPoint> list = plugin.getWarpManager().getOwnWarps(player.getUniqueId());
+        List<WarpPoint> list = plugin.getWarpManager().getOwnWarps(plugin.getEffectiveUuid(player));
         Inventory inv = Bukkit.createInventory(
             new FswHolder(player, FswHolder.Type.SHARE_SELECT), 54,
             "§6选择要分享的传送点");
@@ -302,14 +303,15 @@ public class FswGuiListener implements Listener {
         }
         if (slot < 0 || slot >= 45) return;
 
-        ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(player.getUniqueId());
+        UUID effUuid = plugin.getEffectiveUuid(player);
+        ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(effUuid);
 
         List<WarpPoint> list = new ArrayList<>();
         if (claim != null) {
             double cx = (claim.getX1() + claim.getX2()) / 2.0;
             double cy = claim.getY1();
             double cz = (claim.getZ1() + claim.getZ2()) / 2.0;
-            list.add(new WarpPoint("__claim__", "§d我的领地", player.getUniqueId(),
+            list.add(new WarpPoint("__claim__", "§d我的领地", effUuid,
                 claim.getWorldName(), cx, cy, cz, 0f, 0f));
         }
         list.addAll(plugin.getWarpManager().getAvailableWarps(player));
@@ -319,7 +321,7 @@ public class FswGuiListener implements Listener {
 
         WarpPoint wp = list.get(idx);
         boolean isClaim = wp.getId().equals("__claim__");
-        boolean isOwn = !isClaim && wp.getOwner().equals(player.getUniqueId());
+        boolean isOwn = !isClaim && wp.getOwner().equals(effUuid);
 
         if (deleteMode) {
             if (isClaim) {
@@ -328,7 +330,7 @@ public class FswGuiListener implements Listener {
             } else if (!isOwn) {
                 // Delete shared warp locally
                 plugin.getPlayerDataManager().getPlayerData(player).getAcceptedShares().remove(wp.getId());
-                plugin.getPlayerDataManager().savePlayerData(player.getUniqueId());
+                plugin.getPlayerDataManager().savePlayerData(player);
                 player.sendMessage("§e[Funstart] §a已移除分享传送点 §b" + wp.getName());
                 openTeleportList(player, plugin, page, deleteMode);
             } else {
@@ -375,7 +377,7 @@ public class FswGuiListener implements Listener {
                 player.sendMessage("§e[Funstart] §a已传送到 §b" + wp.getName() + " §a, 消耗 §e" + PlayerData.fmt(cost) + " §a点, 剩余 §e" + PlayerData.fmt(remaining) + " §a点");
             } else {
                 data.addPoints(cost);
-                plugin.getPlayerDataManager().savePlayerData(player.getUniqueId());
+                plugin.getPlayerDataManager().savePlayerData(player);
                 player.sendMessage("§c传送失败，点数已退还");
             }
         });
@@ -388,7 +390,7 @@ public class FswGuiListener implements Listener {
         }
         if (slot < 0 || slot >= 45) return;
 
-        List<WarpPoint> list = plugin.getWarpManager().getOwnWarps(player.getUniqueId());
+        List<WarpPoint> list = plugin.getWarpManager().getOwnWarps(plugin.getEffectiveUuid(player));
         if (slot >= list.size()) return;
         WarpPoint wp = list.get(slot);
         openShareTarget(player, wp.getId(), plugin);
@@ -459,7 +461,7 @@ public class FswGuiListener implements Listener {
             }
             PlayerData data = plugin.getPlayerDataManager().getPlayerData(player);
             data.getAcceptedShares().add(accepted.getWarpId());
-            plugin.getPlayerDataManager().savePlayerData(player.getUniqueId());
+            plugin.getPlayerDataManager().savePlayerData(player);
             player.sendMessage("§e[Funstart] §a已接受 §b" + (fromName != null ? fromName : "未知") + " §a的传送点 §b" + wp.getName());
             Player from = Bukkit.getPlayer(fromUuid);
             if (from != null && from.isOnline()) {

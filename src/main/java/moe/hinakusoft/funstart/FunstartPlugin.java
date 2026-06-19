@@ -25,9 +25,12 @@ import moe.hinakusoft.funstart.listener.CustomEnchantListener;
 import moe.hinakusoft.funstart.custom.CustomItemManager;
 import moe.hinakusoft.funstart.custom.FSTFood;
 import moe.hinakusoft.funstart.manager.ClaimManager;
+import moe.hinakusoft.funstart.manager.ClaimParticleManager;
 import moe.hinakusoft.funstart.manager.FSTActionBar;
 import moe.hinakusoft.funstart.manager.LogManager;
 import moe.hinakusoft.funstart.manager.FstItemIdManager;
+import moe.hinakusoft.funstart.manager.AuthManager;
+import moe.hinakusoft.funstart.manager.ClaimParticleManager;
 import moe.hinakusoft.funstart.manager.RestApiServer;
 import moe.hinakusoft.funstart.manager.PlayerDataManager;
 import moe.hinakusoft.funstart.manager.TpaManager;
@@ -63,6 +66,7 @@ extends JavaPlugin implements Listener {
     private final Map<UUID, SessionData> sessions = new ConcurrentHashMap<>();
     private final Set<UUID> pendingTeleports = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Location> pendingWarpCreation = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> effectiveUuids = new ConcurrentHashMap<>();
     private final Random random = new Random();
     private FSTActionBar actionBar;
     private CustomItemManager customItemManager;
@@ -72,6 +76,8 @@ extends JavaPlugin implements Listener {
     private moe.hinakusoft.funstart.listener.MarketGuiListener marketGuiListener;
     private LogManager logManager;
     private FstItemIdManager fstItemIdManager;
+    private AuthManager authManager;
+    private ClaimParticleManager claimParticleManager;
     private RestApiServer restApiServer;
 
     public void onEnable() {
@@ -83,6 +89,10 @@ extends JavaPlugin implements Listener {
         this.actionBar = new FSTActionBar(this);
         this.claimManager = new ClaimManager(this);
         this.claimManager.load();
+        this.claimParticleManager = new ClaimParticleManager(this);
+        this.claimParticleManager.start();
+        this.authManager = new AuthManager(this);
+        this.getServer().getPluginManager().registerEvents(new moe.hinakusoft.funstart.auth.AuthListener(this, authManager), this);
         this.customItemManager = new CustomItemManager();
         this.fstFood = new FSTFood(new NamespacedKey(this, "fst_food"));
         this.fstFood.setDefaultHandler(new moe.hinakusoft.funstart.custom.handler.DefaultFood());
@@ -224,6 +234,9 @@ extends JavaPlugin implements Listener {
         }
         this.playerDataManager.saveAll();
         this.warpManager.save();
+        if (this.claimParticleManager != null) {
+            this.claimParticleManager.stop();
+        }
         if (this.logManager != null) {
             this.logManager.onDisable();
         }
@@ -241,7 +254,30 @@ extends JavaPlugin implements Listener {
     public moe.hinakusoft.funstart.listener.MarketGuiListener getMarketGuiListener() { return marketGuiListener; }
     public LogManager getLogManager() { return logManager; }
     public FstItemIdManager getFstItemIdManager() { return fstItemIdManager; }
+    public AuthManager getAuthManager() { return authManager; }
     public Map<UUID, PendingChatAction> getPendingChatActions() { return pendingChatActions; }
+
+    // ---- Effective UUID (cross-account login) ----
+
+    public UUID getEffectiveUuid(UUID realUuid) {
+        return effectiveUuids.getOrDefault(realUuid, realUuid);
+    }
+
+    public UUID getEffectiveUuid(Player player) {
+        return getEffectiveUuid(player.getUniqueId());
+    }
+
+    public void setEffectiveUuid(UUID realUuid, UUID effectiveUuid) {
+        if (effectiveUuid != null && !effectiveUuid.equals(realUuid)) {
+            effectiveUuids.put(realUuid, effectiveUuid);
+        } else {
+            effectiveUuids.remove(realUuid);
+        }
+    }
+
+    public void clearEffectiveUuid(UUID realUuid) {
+        effectiveUuids.remove(realUuid);
+    }
 
     public void addPendingChatAction(UUID uuid, PendingChatAction.Type type, Object data) {
         addPendingChatAction(uuid, type, data, 1200L);
@@ -288,6 +324,8 @@ extends JavaPlugin implements Listener {
                             case MARKET_LIST_PRICE -> "上架价格输入";
                             case MARKET_LIST_DURATION -> "上架时长输入";
                             case MARKET_BUY_QTY -> "购买数量输入";
+                            case CHANGE_PASSWORD -> "修改密码";
+                            case ADMIN_RESET_PASSWORD -> "重置密码";
                             case TPA_RESPONSE -> ""; // handled above
                         };
                         p.sendMessage("§c" + t + " 已超时");
@@ -547,7 +585,7 @@ extends JavaPlugin implements Listener {
     // ---- Pending chat action system ----
 
     public static class PendingChatAction {
-        public enum Type { ADD_WARP, TELEPORT_CONFIRM, SHARE_RESPONSE, DELETE_WARP, ALL_FIX_CONFIRM, BANK_TRANSFER, BANK_AMOUNT, TPA_RESPONSE, CLAIM_POSITION, ADD_TRUSTED, ENCHANT_CONFIRM, DISENCHANT_CONFIRM, DATA_EDIT_CONFIRM, NBT_EDIT_CONFIRM, NBT_ADD_KEY, NBT_ADD_VALUE, MARKET_LIST_QTY, MARKET_LIST_PRICE, MARKET_LIST_DURATION, MARKET_BUY_QTY }
+        public enum Type { ADD_WARP, TELEPORT_CONFIRM, SHARE_RESPONSE, DELETE_WARP, ALL_FIX_CONFIRM, BANK_TRANSFER, BANK_AMOUNT, TPA_RESPONSE, CLAIM_POSITION, ADD_TRUSTED, ENCHANT_CONFIRM, DISENCHANT_CONFIRM, DATA_EDIT_CONFIRM, NBT_EDIT_CONFIRM, NBT_ADD_KEY, NBT_ADD_VALUE, MARKET_LIST_QTY, MARKET_LIST_PRICE, MARKET_LIST_DURATION, MARKET_BUY_QTY, CHANGE_PASSWORD, ADMIN_RESET_PASSWORD }
         public final Type type;
         public final Object data;
         public final long expireTime;

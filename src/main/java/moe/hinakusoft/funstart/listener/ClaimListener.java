@@ -55,7 +55,7 @@ public class ClaimListener implements Listener {
         // Claim protection
         ClaimRegion claim = plugin.getClaimManager().getClaimAt(loc);
         if (claim != null) {
-            UUID uid = player.getUniqueId();
+            UUID uid = plugin.getEffectiveUuid(player);
             if (!claim.getOwner().equals(uid) && !claim.getTrustedPlayers().contains(uid)) {
                 event.setCancelled(true);
                 player.sendMessage("§c你没有权限在此区域破坏方块");
@@ -79,7 +79,7 @@ public class ClaimListener implements Listener {
 
         ClaimRegion claim = plugin.getClaimManager().getClaimAt(loc);
         if (claim != null) {
-            UUID uid = player.getUniqueId();
+            UUID uid = plugin.getEffectiveUuid(player);
             if (!claim.getOwner().equals(uid) && !claim.getTrustedPlayers().contains(uid)) {
                 event.setCancelled(true);
                 player.sendMessage("§c你没有权限在此区域放置方块");
@@ -149,7 +149,7 @@ public class ClaimListener implements Listener {
         ClaimRegion claim = plugin.getClaimManager().getClaimAt(to);
         ClaimRegion prevClaim = plugin.getClaimManager().getClaimAt(event.getFrom());
 
-        if (claim != null && !claim.equals(prevClaim) && !claim.getOwner().equals(uid)) {
+        if (claim != null && !claim.equals(prevClaim) && !claim.getOwner().equals(plugin.getEffectiveUuid(player))) {
             String ownerName = plugin.getServer().getOfflinePlayer(claim.getOwner()).getName();
             player.sendMessage("§e[Funstart] §b" + (ownerName != null ? ownerName : "未知") + " §7的领地");
         }
@@ -179,7 +179,7 @@ public class ClaimListener implements Listener {
         Location loc = block.getLocation();
         ClaimRegion claim = plugin.getClaimManager().getClaimAt(loc);
         if (claim == null) return;
-        UUID uid = player.getUniqueId();
+        UUID uid = plugin.getEffectiveUuid(player);
         if (!claim.getOwner().equals(uid) && !claim.getTrustedPlayers().contains(uid)) {
             event.setCancelled(true);
             player.sendMessage("§c你没有权限使用该容器/装置");
@@ -195,7 +195,7 @@ public class ClaimListener implements Listener {
         Location loc = event.getRightClicked().getLocation();
         ClaimRegion claim = plugin.getClaimManager().getClaimAt(loc);
         if (claim == null) return;
-        UUID uid = player.getUniqueId();
+        UUID uid = plugin.getEffectiveUuid(player);
         if (!claim.getOwner().equals(uid) && !claim.getTrustedPlayers().contains(uid)) {
             event.setCancelled(true);
             player.sendMessage("§c你没有权限使用该盔甲架");

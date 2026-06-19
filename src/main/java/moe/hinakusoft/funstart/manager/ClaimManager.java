@@ -23,6 +23,7 @@ public class ClaimManager {
     private final FunstartPlugin plugin;
     private final List<ClaimRegion> claims = new ArrayList<>();
     private final Map<UUID, ClaimSessionData> claimSessions = new HashMap<>();
+    private final Map<UUID, UUID> reclaimTargets = new HashMap<>();
     private Location spawnLocation;
     private int spawnRadius = 350;
 
@@ -80,7 +81,7 @@ public class ClaimManager {
         ClaimRegion claim = getClaimAt(loc);
         if (claim == null) return true; // no claim -> can build
 
-        UUID uid = player.getUniqueId();
+        UUID uid = plugin.getEffectiveUuid(player);
         return claim.getOwner().equals(uid) || claim.getTrustedPlayers().contains(uid);
     }
 
@@ -98,15 +99,21 @@ public class ClaimManager {
         int y2 = Math.max(pos1.getBlockY(), pos2.getBlockY());
         int z2 = Math.max(pos1.getBlockZ(), pos2.getBlockZ());
 
+        UUID ownerUuid = reclaimTargets.getOrDefault(player.getUniqueId(), player.getUniqueId());
+
         // Check spawn protection
         if (isInSpawnProtection(wn, x1, y1, z1) || isInSpawnProtection(wn, x2, y2, z2)) {
             return "§c圈地区域与出生点保护区重叠";
         }
 
         // Check overlap with other claims
-        ClaimRegion temp = new ClaimRegion(player.getUniqueId(), wn, x1, y1, z1, x2, y2, z2);
+        ClaimRegion temp = new ClaimRegion(ownerUuid, wn, x1, y1, z1, x2, y2, z2);
         for (ClaimRegion c : claims) {
-            if (c.getOwner().equals(player.getUniqueId())) {
+            if (!ownerUuid.equals(player.getUniqueId()) && c.getOwner().equals(ownerUuid)) {
+                // When reclaiming for another player, allow overwrite of their old claim
+                continue;
+            }
+            if (c.getOwner().equals(ownerUuid)) {
                 return "§c你已经有一个圈地了, 最多只能有一个";
             }
             if (c.overlaps(temp)) {
@@ -128,7 +135,7 @@ public class ClaimManager {
                 return "§c点数不足! 圈地额外体积 " + extra + " 需要 " + String.format("%.1f", cost) + " 点, 你只有 " + String.format("%.1f", pd.getPoints()) + " 点";
             }
             pd.deductPoints(cost);
-            plugin.getPlayerDataManager().savePlayerData(player.getUniqueId());
+            plugin.getPlayerDataManager().savePlayerData(player);
         }
 
         claims.add(temp);
@@ -176,6 +183,32 @@ public class ClaimManager {
     }
 
     public int getSpawnRadius() { return spawnRadius; }
+
+    public List<ClaimRegion> getAllClaims() {
+        return new ArrayList<>(claims);
+    }
+
+    public ClaimSessionData getSessionData(UUID uid) {
+        return claimSessions.get(uid);
+    }
+
+    // ---- Reclaim (admin override) ----
+
+    public void setReclaimTarget(UUID adminUuid, UUID targetOwner) {
+        if (targetOwner != null) {
+            reclaimTargets.put(adminUuid, targetOwner);
+        } else {
+            reclaimTargets.remove(adminUuid);
+        }
+    }
+
+    public UUID getReclaimTarget(UUID adminUuid) {
+        return reclaimTargets.get(adminUuid);
+    }
+
+    public void clearReclaimTarget(UUID adminUuid) {
+        reclaimTargets.remove(adminUuid);
+    }
 
     // ---- Claim Creation Session (independent of pendingChatActions) ----
 
@@ -230,6 +263,7 @@ public class ClaimManager {
 
         if (System.currentTimeMillis() - csd.lastActivity > CLAIM_SESSION_TIMEOUT) {
             claimSessions.remove(uid);
+            clearReclaimTarget(uid);
             plugin.removePendingChatAction(uid);
             player.sendMessage("§c圈地操作已超时");
             return;
@@ -272,6 +306,7 @@ public class ClaimManager {
                 player.sendMessage(result);
             }
             claimSessions.remove(uid);
+            clearReclaimTarget(uid);
             plugin.removePendingChatAction(uid);
         }
     }

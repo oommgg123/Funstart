@@ -48,6 +48,12 @@ public class AdminGuiListener implements Listener {
         inv.setItem(16, makeItem(Material.SHULKER_BOX, "§7§l无声 TPAH",
             "§7无提示拉取对方"));
 
+        inv.setItem(17, makeItem(Material.GOLDEN_AXE, "§6§l领地管理",
+            "§7管理所有领地",
+            "§e传送到领地中心",
+            "§e重新圈地",
+            "§e删除领地"));
+
         // Row 3: Data & NBT editing (OP only)
         inv.setItem(18, makeItem(Material.COMMAND_BLOCK, "§4§l数据修改",
             "§c§l⚠ 该功能具有危险性!",
@@ -56,7 +62,11 @@ public class AdminGuiListener implements Listener {
 
         inv.setItem(19, makeItem(Material.NAME_TAG, "§b§lNBT 修改",
             "§7修改物品 NBT 标签",
-            "§e点击后手持物品输入 §ff §e继续"));
+            "§e点击后手持物品输入 §ef §e继续"));
+
+        inv.setItem(22, makeItem(Material.ENCHANTED_BOOK, "§c§l重置密码",
+            "§7重置玩家账号密码",
+            "§e选择玩家后输入新密码"));
 
         inv.setItem(26, makeItem(Material.BARRIER, "§c关闭"));
 
@@ -148,10 +158,29 @@ public class AdminGuiListener implements Listener {
         player.openInventory(inv);
     }
 
+    // ---- Password Reset ----
+
+    private static void openPasswordResetSelect(Player player, FunstartPlugin plugin) {
+        Inventory inv = Bukkit.createInventory(new AdminHolder(player, AdminHolder.View.PASSWORD_RESET), 54, "§c选择要重置密码的玩家");
+        int slot = 0;
+        for (Player target : Bukkit.getOnlinePlayers()) {
+            if (target.equals(player)) continue;
+            if (slot >= 45) break;
+            ItemStack head = new ItemStack(Material.PLAYER_HEAD);
+            SkullMeta meta = (SkullMeta) head.getItemMeta();
+            meta.setPlayerProfile(target.getPlayerProfile());
+            meta.setDisplayName("§b" + target.getName());
+            head.setItemMeta(meta);
+            inv.setItem(slot++, head);
+        }
+        inv.setItem(53, makeItem(Material.BARRIER, "§c返回"));
+        player.openInventory(inv);
+    }
+
     // ---- Holder ----
 
     public static class AdminHolder implements InventoryHolder {
-        enum View { MAIN, KICK_SELECT, KICK_CONFIRM, GAMEMODE, FREE_WARP, TPA, TPAH, TPA_SILENT, TPAH_SILENT }
+        enum View { MAIN, KICK_SELECT, KICK_CONFIRM, GAMEMODE, FREE_WARP, TPA, TPAH, TPA_SILENT, TPAH_SILENT, CLAIM_LIST, CLAIM_DETAIL, PASSWORD_RESET }
 
         private final Player player;
         private final View view;
@@ -197,6 +226,9 @@ public class AdminGuiListener implements Listener {
             case GAMEMODE -> handleGameModeClick(player, slot, holder);
             case FREE_WARP -> handleFreeWarpClick(player, slot, holder);
             case TPA, TPAH, TPA_SILENT, TPAH_SILENT -> handleTeleportClick(player, slot, holder.getView(), event);
+            case CLAIM_LIST -> handleClaimListClick(player, slot, holder);
+            case CLAIM_DETAIL -> handleClaimDetailClick(player, slot, holder);
+            case PASSWORD_RESET -> handlePasswordResetClick(player, slot, event);
         }
     }
 
@@ -221,6 +253,7 @@ public class AdminGuiListener implements Listener {
             case 14 -> openPlayerSelect(player, plugin, AdminHolder.View.TPAH);
             case 15 -> openPlayerSelect(player, plugin, AdminHolder.View.TPA_SILENT);
             case 16 -> openPlayerSelect(player, plugin, AdminHolder.View.TPAH_SILENT);
+            case 17 -> openClaimList(player, plugin);
             case 18 -> {
                 player.closeInventory();
                 plugin.addPendingChatAction(player.getUniqueId(),
@@ -234,6 +267,7 @@ public class AdminGuiListener implements Listener {
                     FunstartPlugin.PendingChatAction.Type.NBT_EDIT_CONFIRM, null, 600L);
                 player.sendMessage("§b[NBT修改] §7请手持要修改的物品, 输入 §ef §7继续");
             }
+            case 22 -> openPasswordResetSelect(player, plugin);
             case 26 -> player.closeInventory();
         }
     }
@@ -343,6 +377,146 @@ public class AdminGuiListener implements Listener {
             }
         }
         player.closeInventory();
+    }
+
+    // ---- Claim Management ----
+
+    private static void openClaimList(Player player, FunstartPlugin plugin) {
+        List<moe.hinakusoft.funstart.model.ClaimRegion> claims = plugin.getClaimManager().getAllClaims();
+        Inventory inv = Bukkit.createInventory(new AdminHolder(player, AdminHolder.View.CLAIM_LIST), 54, "§6§l领地列表");
+        int slot = 0;
+        for (moe.hinakusoft.funstart.model.ClaimRegion c : claims) {
+            if (slot >= 45) break;
+            String ownerName = c.getOwner() != null ? Bukkit.getOfflinePlayer(c.getOwner()).getName() : "未知";
+            ItemStack item = new ItemStack(Material.GRASS_BLOCK);
+            ItemMeta meta = item.getItemMeta();
+            meta.setDisplayName("§b" + ownerName + " §7的领地");
+            int xc = (c.getX1() + c.getX2()) / 2;
+            int zc = (c.getZ1() + c.getZ2()) / 2;
+            meta.setLore(List.of(
+                "§7世界: " + c.getWorldName(),
+                "§7坐标: §e" + xc + ", " + zc,
+                "§7体积: §e" + c.getVolume() + " §7方块",
+                "§7信任玩家: §e" + c.getTrustedPlayers().size() + " §7人",
+                "§a点击管理"
+            ));
+            item.setItemMeta(meta);
+            inv.setItem(slot++, item);
+        }
+        inv.setItem(49, makeItem(Material.BARRIER, "§c返回"));
+        player.openInventory(inv);
+    }
+
+    private static void openClaimDetail(Player player, FunstartPlugin plugin, moe.hinakusoft.funstart.model.ClaimRegion claim) {
+        Inventory inv = Bukkit.createInventory(new AdminHolder(player, AdminHolder.View.CLAIM_DETAIL, claim.getOwner(), null), 27, "§6§l领地管理");
+
+        String ownerName = claim.getOwner() != null ? Bukkit.getOfflinePlayer(claim.getOwner()).getName() : "未知";
+        int xc = (claim.getX1() + claim.getX2()) / 2;
+        int yc = (claim.getY1() + claim.getY2()) / 2;
+        int zc = (claim.getZ1() + claim.getZ2()) / 2;
+
+        inv.setItem(4, makeItem(Material.GRASS_BLOCK, "§b" + ownerName + " §7的领地",
+            "§7世界: " + claim.getWorldName(),
+            "§7范围: §e(" + claim.getX1() + ", " + claim.getY1() + ", " + claim.getZ1() + ") §7→ §e(" + claim.getX2() + ", " + claim.getY2() + ", " + claim.getZ2() + ")",
+            "§7中心: §e" + xc + ", " + yc + ", " + zc,
+            "§7体积: §e" + claim.getVolume() + " §7方块",
+            "§7信任玩家: §e" + claim.getTrustedPlayers().size() + " §7人"));
+
+        inv.setItem(11, makeItem(Material.ENDER_PEARL, "§a§l传送至领地中心",
+            "§7传送至 §e" + xc + ", " + yc + ", " + zc));
+
+        inv.setItem(13, makeItem(Material.GOLDEN_AXE, "§6§l重新圈地",
+            "§7删除旧领地并创建新的",
+            "§7新领地将分配给原玩家"));
+
+        inv.setItem(15, makeItem(Material.REDSTONE_BLOCK, "§c§l删除领地",
+            "§7删除该领地"));
+
+        inv.setItem(22, makeItem(Material.BARRIER, "§c返回"));
+
+        player.openInventory(inv);
+    }
+
+    private void handleClaimListClick(Player player, int slot, AdminHolder holder) {
+        if (slot == 49) {
+            openMain(player, plugin);
+            return;
+        }
+        List<moe.hinakusoft.funstart.model.ClaimRegion> claims = plugin.getClaimManager().getAllClaims();
+        if (slot < 0 || slot >= claims.size()) return;
+        moe.hinakusoft.funstart.model.ClaimRegion claim = claims.get(slot);
+        openClaimDetail(player, plugin, claim);
+    }
+
+    private void handleClaimDetailClick(Player player, int slot, AdminHolder holder) {
+        UUID ownerUuid = holder.getTargetUuid();
+        if (ownerUuid == null) { openMain(player, plugin); return; }
+        moe.hinakusoft.funstart.model.ClaimRegion claim = plugin.getClaimManager().getClaimByOwner(ownerUuid);
+        if (claim == null) {
+            player.sendMessage("§c该领地已不存在");
+            openMain(player, plugin);
+            return;
+        }
+
+        if (slot == 11) {
+            // Teleport to claim center
+            World world = Bukkit.getWorld(claim.getWorldName());
+            if (world == null) {
+                player.sendMessage("§c领地所在世界不可用");
+                return;
+            }
+            int xc = (claim.getX1() + claim.getX2()) / 2;
+            int yc = (claim.getY1() + claim.getY2()) / 2;
+            int zc = (claim.getZ1() + claim.getZ2()) / 2;
+            player.teleportAsync(new Location(world, xc + 0.5, yc + 0.5, zc + 0.5));
+            player.sendMessage("§e[管理] §a已传送至领地中心");
+            plugin.getLogger().info("[Admin] " + player.getName() + " 传送至 " + ownerUuid + " 的领地中心");
+            player.closeInventory();
+        } else if (slot == 13) {
+            // Re-claim: delete old claim and start a new claim session for admin
+            plugin.getClaimManager().deleteClaim(ownerUuid);
+            plugin.getClaimManager().setReclaimTarget(player.getUniqueId(), ownerUuid);
+            plugin.getClaimManager().startClaimSession(player);
+            player.sendMessage("§6[管理] §a已删除旧领地, 请重新选择圈地范围");
+            player.sendMessage("§7新领地创建后将分配给原玩家");
+        } else if (slot == 15) {
+            // Delete claim
+            plugin.getClaimManager().deleteClaim(ownerUuid);
+            player.sendMessage("§e[管理] §a已删除该领地");
+            plugin.getLogger().info("[Admin] " + player.getName() + " 删除了 " + ownerUuid + " 的领地");
+            openMain(player, plugin);
+        } else if (slot == 22) {
+            openClaimList(player, plugin);
+        }
+    }
+
+    private void handlePasswordResetClick(Player player, int slot, InventoryClickEvent event) {
+        if (slot >= 45 && slot == 53) {
+            openMain(player, plugin);
+            return;
+        }
+        ItemStack item = event.getCurrentItem();
+        if (item == null || !item.hasItemMeta()) return;
+        String displayName = item.getItemMeta().getDisplayName();
+        if (displayName == null || displayName.isEmpty()) return;
+        String targetName = displayName.replace("§b", "").replace("§r", "").trim();
+        Player target = Bukkit.getPlayerExact(targetName);
+        if (target == null || !target.isOnline()) {
+            player.sendMessage("§c该玩家已离线");
+            openPasswordResetSelect(player, plugin);
+            return;
+        }
+        var authManager = plugin.getAuthManager();
+        if (authManager == null || !authManager.isRegistered(target.getUniqueId())) {
+            player.sendMessage("§c该玩家尚未注册账号");
+            openPasswordResetSelect(player, plugin);
+            return;
+        }
+        player.closeInventory();
+        plugin.addPendingChatAction(player.getUniqueId(),
+            FunstartPlugin.PendingChatAction.Type.ADMIN_RESET_PASSWORD,
+            target.getUniqueId(), 600L);
+        player.sendMessage("§c[管理] §e请输入 " + targetName + " §e的新密码 (至少4位):");
     }
 
     // ---- Helpers ----

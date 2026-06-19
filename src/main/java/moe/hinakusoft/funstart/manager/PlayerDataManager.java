@@ -26,13 +26,21 @@ public class PlayerDataManager {
     }
 
     public PlayerData getPlayerData(Player player) {
-        return this.getPlayerData(player.getUniqueId());
+        return this.getPlayerData(plugin.getEffectiveUuid(player));
     }
 
     public void savePlayerData(UUID uuid) {
         PlayerData data = this.cache.get(uuid);
         if (data != null) {
             this.saveToFile(uuid, data);
+        }
+    }
+
+    public void savePlayerData(Player player) {
+        UUID effUuid = plugin.getEffectiveUuid(player);
+        PlayerData data = this.cache.get(effUuid);
+        if (data != null) {
+            this.saveToFile(effUuid, data);
         }
     }
 

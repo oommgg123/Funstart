@@ -35,25 +35,16 @@ public class ChatListener implements Listener {
         Player player = event.getPlayer();
         String msg = event.getMessage().trim();
 
-        // Global 1/2 intercept — claim session takes priority
-        if ((msg.equals("1") || msg.equals("2")) && plugin.getClaimManager().hasActiveSession(player.getUniqueId())) {
-            event.setCancelled(true);
-            plugin.removePendingChatAction(player.getUniqueId());
-            plugin.getServer().getScheduler().runTask(plugin, () -> {
-                plugin.getClaimManager().handleGlobalClaimChat(player, msg);
-            });
-            return;
-        }
-
+        // Check pending chat action first
         PendingChatAction action = plugin.removePendingChatAction(player.getUniqueId());
-        if (action == null) return;
 
-        event.setCancelled(true);
+        if (action != null) {
+            event.setCancelled(true);
 
-        if (System.currentTimeMillis() > action.expireTime) {
-            player.sendMessage("§c操作已超时");
-            return;
-        }
+            if (System.currentTimeMillis() > action.expireTime) {
+                player.sendMessage("§c操作已超时");
+                return;
+            }
 
         if (action.type == FunstartPlugin.PendingChatAction.Type.TPA_RESPONSE) {
             if (!msg.equals("1") && !msg.equals("2")) {
@@ -415,7 +406,48 @@ public class ChatListener implements Listener {
                     }
                 });
             }
+            case CHANGE_PASSWORD -> {
+                if (msg.length() < 4) {
+                    player.sendMessage("§c密码长度不能少于4位, 请重新输入:");
+                    return;
+                }
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    var authManager = plugin.getAuthManager();
+                    if (authManager != null && authManager.isRegistered(player.getUniqueId())) {
+                        authManager.changePassword(player.getUniqueId(), msg);
+                        player.sendMessage("§a密码修改成功");
+                    } else {
+                        player.sendMessage("§c操作失败, 你尚未注册");
+                    }
+                });
+            }
+            case ADMIN_RESET_PASSWORD -> {
+                if (msg.length() < 4) {
+                    player.sendMessage("§c密码长度不能少于4位, 请重新输入:");
+                    return;
+                }
+                if (!(action.data instanceof UUID targetUuid)) return;
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    var authManager = plugin.getAuthManager();
+                    if (authManager != null && authManager.resetPassword(targetUuid, msg)) {
+                        String name = Bukkit.getOfflinePlayer(targetUuid).getName();
+                        player.sendMessage("§c[管理] §a已重置 §b" + (name != null ? name : "未知") + " §a的密码");
+                        plugin.getLogger().info("[Admin] " + player.getName() + " 重置了 " + name + " 的密码");
+                    } else {
+                        player.sendMessage("§c操作失败, 该玩家尚未注册");
+                    }
+                });
+            }
             default -> {}
+        }
+        }
+
+        // If no pending chat action, check claim session for 1/2
+        if ((msg.equals("1") || msg.equals("2")) && plugin.getClaimManager().hasActiveSession(player.getUniqueId())) {
+            event.setCancelled(true);
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                plugin.getClaimManager().handleGlobalClaimChat(player, msg);
+            });
         }
     }
 

@@ -165,9 +165,51 @@ public class PanelClockListener implements Listener {
             "§7为你提供更好的游戏体验");
         inv.setItem(15, creditItem);
 
+        // Account settings button (if registered)
+        var authManager = plugin.getAuthManager();
+        if (authManager != null && authManager.isRegistered(player.getUniqueId())) {
+            inv.setItem(10, makeItem(Material.REDSTONE_TORCH, "§c§l账号设置",
+                "§7自动登录 / 修改密码"));
+        }
+
         inv.setItem(26, makeItem(Material.BARRIER, "§c关闭"));
 
         player.openInventory(inv);
+    }
+
+    // ---- Auth settings ----
+
+    public static void openAuthSettings(Player player, FunstartPlugin plugin) {
+        var authManager = plugin.getAuthManager();
+        if (authManager == null || !authManager.isRegistered(player.getUniqueId())) {
+            player.sendMessage("§c你尚未注册账号");
+            return;
+        }
+
+        Inventory inv = Bukkit.createInventory(new PanelHolder(player, PanelHolder.View.AUTH_SETTINGS), 27, "§c§l账号设置");
+
+        String username = authManager.getUsername(player.getUniqueId());
+        inv.setItem(4, makeItem(Material.PLAYER_HEAD, "§b" + (username != null ? username : player.getName()),
+            "§7账号设置"));
+
+        boolean autoLogin = authManager.isAutoLogin(player.getUniqueId(), getCurrentIp(player));
+        inv.setItem(11, makeItem(
+            autoLogin ? Material.LIME_DYE : Material.GRAY_DYE,
+            "§" + (autoLogin ? "a" : "c") + "§l自动登录: " + (autoLogin ? "§a✔ 开启" : "§c✘ 关闭"),
+            "§7点击" + (autoLogin ? "关闭" : "开启") + "自动登录",
+            "§7开启后, 同一IP进入服务器将自动登录"));
+
+        inv.setItem(15, makeItem(Material.ENCHANTED_BOOK, "§6§l修改密码",
+            "§7点击后在聊天框输入新密码"));
+
+        inv.setItem(26, makeItem(Material.BARRIER, "§c返回"));
+
+        player.openInventory(inv);
+    }
+
+    private static String getCurrentIp(Player player) {
+        java.net.InetSocketAddress addr = player.getAddress();
+        return addr != null ? addr.getAddress().getHostAddress() : "unknown";
     }
 
     // ---- Warp creation confirmation GUI ----
@@ -303,6 +345,28 @@ public class PanelClockListener implements Listener {
         openDisenchantFor(player, this.plugin);
     }
 
+    private void handleAuthSettingsClick(Player player, int slot) {
+        var authManager = plugin.getAuthManager();
+        if (authManager == null) return;
+
+        if (slot == 11) {
+            // Toggle auto-login
+            boolean current = authManager.isAutoLogin(player.getUniqueId(), getCurrentIp(player));
+            String ip = getCurrentIp(player);
+            authManager.setAutoLogin(player.getUniqueId(), ip, !current);
+            player.sendMessage("§a自动登录已" + (!current ? "开启" : "关闭"));
+            openAuthSettings(player, plugin);
+        } else if (slot == 15) {
+            // Change password - start chat flow
+            player.closeInventory();
+            plugin.addPendingChatAction(player.getUniqueId(),
+                FunstartPlugin.PendingChatAction.Type.CHANGE_PASSWORD, null, 600L);
+            player.sendMessage("§e请输入新密码 (至少4位):");
+        } else if (slot == 26) {
+            openAbout(player, plugin);
+        }
+    }
+
     private void handleDisenchantClick(Player player, int slot, InventoryClickEvent event) {
         ItemStack held = player.getInventory().getItemInMainHand();
         if (held == null || held.getType().isAir()) {
@@ -409,6 +473,7 @@ public class PanelClockListener implements Listener {
             case ABOUT -> handleAboutClick(player, slot);
             case WARP_CREATE_CONFIRM -> handleWarpCreateConfirmClick(player, slot, holder.getWarpName());
             case DISENCHANT -> handleDisenchantClick(player, slot, event);
+            case AUTH_SETTINGS -> handleAuthSettingsClick(player, slot);
         }
     }
 
@@ -461,7 +526,9 @@ public class PanelClockListener implements Listener {
     }
 
     private void handleAboutClick(Player player, int slot) {
-        if (slot == 26) {
+        if (slot == 10) {
+            openAuthSettings(player, plugin);
+        } else if (slot == 26) {
             player.closeInventory();
         }
     }
@@ -499,7 +566,7 @@ public class PanelClockListener implements Listener {
     // ---- InventoryHolder ----
 
     public static class PanelHolder implements InventoryHolder {
-        enum View { MAIN, ABOUT, WARP_CREATE_CONFIRM, DISENCHANT }
+        enum View { MAIN, ABOUT, WARP_CREATE_CONFIRM, DISENCHANT, AUTH_SETTINGS }
 
         private final Player player;
         private final View view;
