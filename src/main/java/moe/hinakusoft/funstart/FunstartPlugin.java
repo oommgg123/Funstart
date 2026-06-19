@@ -124,7 +124,8 @@ extends JavaPlugin implements Listener {
         this.getServer().getPluginManager().registerEvents(new moe.hinakusoft.funstart.listener.AdminGuiListener(this), this);
         this.getServer().getPluginManager().registerEvents(new moe.hinakusoft.funstart.listener.DataEditGuiListener(this), this);
         this.getServer().getPluginManager().registerEvents(new moe.hinakusoft.funstart.listener.NbtEditGuiListener(this), this);
-        this.getServer().getPluginManager().registerEvents(new moe.hinakusoft.funstart.listener.MarketGuiListener(this), this);
+        this.marketGuiListener = new moe.hinakusoft.funstart.listener.MarketGuiListener(this);
+        this.getServer().getPluginManager().registerEvents(this.marketGuiListener, this);
         this.logManager = new LogManager(this);
         this.fstItemIdManager = new FstItemIdManager(getDataFolder());
         this.getServer().getPluginManager().registerEvents(new moe.hinakusoft.funstart.listener.LogListener(this), this);
