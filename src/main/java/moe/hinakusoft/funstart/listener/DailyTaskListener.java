@@ -1,6 +1,5 @@
 package moe.hinakusoft.funstart.listener;
 
-import java.util.List;
 import moe.hinakusoft.funstart.FunstartPlugin;
 import moe.hinakusoft.funstart.manager.DailyTaskManager;
 import moe.hinakusoft.funstart.manager.DailyTaskManager.TaskDef;
@@ -18,6 +17,8 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.List;
+
 public class DailyTaskListener implements Listener {
 
     private final FunstartPlugin plugin;
@@ -30,7 +31,7 @@ public class DailyTaskListener implements Listener {
         PlayerData data = plugin.getPlayerDataManager().getPlayerData(player);
         DailyTaskManager.checkAndReset(data);
 
-        Inventory inv = Bukkit.createInventory(new TaskHolder(player), 27, "§6§l每日任务");
+        Inventory inv = Bukkit.createInventory(new TaskHolder(player), 27, "§6§l可重复任务");
 
         for (int i = 0; i < 3; i++) {
             TaskDef task = DailyTaskManager.TASKS.get(i);
@@ -66,7 +67,7 @@ public class DailyTaskListener implements Listener {
         ItemStack info = new ItemStack(Material.CLOCK);
         ItemMeta infoMeta = info.getItemMeta();
         infoMeta.setDisplayName("§7任务日期: §f" + DailyTaskManager.getTodayDate());
-        infoMeta.setLore(List.of("§7每日0点刷新", "§7完成所有任务可获得额外奖励!"));
+        infoMeta.setLore(List.of("§7完成后可重复领取", "§7完成所有任务可获得额外奖励!"));
         info.setItemMeta(infoMeta);
         inv.setItem(26, info);
 

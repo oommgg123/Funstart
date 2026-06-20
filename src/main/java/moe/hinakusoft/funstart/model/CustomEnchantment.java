@@ -10,7 +10,8 @@ public enum CustomEnchantment {
     EXPLOSIVE_THROW("爆裂投掷", "投掷物击中产生爆炸"),
     LEAF_HIDDEN("叶隐", "树叶下隐身并缓慢回复"),
     TIME_SLOW("时间减缓", "攻击概率减缓目标"),
-    SHIKI_NATSUME("四季夏目", "四季夏目的力量");
+    SHIKI_NATSUME("四季夏目", "四季夏目的力量"),
+    DENSE_SHOT("密集射击", "弩箭矢密集射击");
 
     private final String displayName;
     private final String description;
@@ -27,6 +28,6 @@ public enum CustomEnchantment {
     public static final List<CustomEnchantment> VALUES = List.of(values());
     public static final List<CustomEnchantment> GUI_VALUES = List.of(
         MINER_AGILITY, LIFE_STEAL, FROST_TRAIL, ENDER_MOVE,
-        EXPLOSIVE_THROW, LEAF_HIDDEN, TIME_SLOW
+            EXPLOSIVE_THROW, LEAF_HIDDEN, TIME_SLOW, DENSE_SHOT
     );
 }

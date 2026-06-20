@@ -1,21 +1,14 @@
 package moe.hinakusoft.funstart.listener;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
 import moe.hinakusoft.funstart.FunstartPlugin;
-import moe.hinakusoft.funstart.manager.WarpManager;
 import moe.hinakusoft.funstart.model.CustomEnchantment;
+import moe.hinakusoft.funstart.model.FeatureFlag;
 import moe.hinakusoft.funstart.model.PlayerData;
-import moe.hinakusoft.funstart.model.WarpPoint;
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.Registry;
-import org.bukkit.World;
 import org.bukkit.NamespacedKey;
+import org.bukkit.Registry;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -25,12 +18,14 @@ import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
-import org.bukkit.inventory.meta.EnchantmentStorageMeta;
-import org.bukkit.enchantments.Enchantment;
 import org.bukkit.persistence.PersistentDataType;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class PanelClockListener implements Listener {
 
@@ -63,12 +58,12 @@ public class PanelClockListener implements Listener {
         Inventory inv = Bukkit.createInventory(new PanelHolder(player, PanelHolder.View.MAIN), 54, "§8§lFunstart 功能面板");
 
         // Row 1: FunStart面板 (附魔的粗金块)
-        inv.setItem(0, makeEnchantedItem(Material.GOLD_BLOCK, "§6§lFunStart 面板",
-            "§7打开主要功能设置", "§7连锁挖掘 / 范围收割 / 自动修复等"));
+        inv.setItem(0, makeFeatureItem(plugin, FeatureFlag.MAIN_MENU, Material.GOLD_BLOCK, true,
+                "§6§lFunStart 面板", "§7打开主要功能设置", "§7连锁挖掘 / 范围收割 / 自动修复等"));
 
         // 传送点面板 (哭泣黑曜石 - 地狱传送门样式)
-        inv.setItem(1, makeEnchantedItem(Material.CRYING_OBSIDIAN, "§5§l传送点面板",
-            "§7传送点管理", "§7创建 / 传送 / 分享传送点"));
+        inv.setItem(1, makeFeatureItem(plugin, FeatureFlag.WARP, Material.CRYING_OBSIDIAN, true,
+                "§5§l传送点面板", "§7传送点管理", "§7创建 / 传送 / 分享传送点"));
 
         // tpa面板 (玩家头颅)
         ItemStack tpaHead = new ItemStack(Material.PLAYER_HEAD);
@@ -83,27 +78,24 @@ public class PanelClockListener implements Listener {
             "§7邀请其他玩家传送到你身边"));
 
         // 附魔 (附魔书)
-        inv.setItem(4, makeEnchantedItem(Material.ENCHANTED_BOOK, "§d§l注魔附魔",
-            "§7为装备添加附魔",
-            "§7支持多种附魔与自定义附魔"));
+        inv.setItem(4, makeFeatureItem(plugin, FeatureFlag.ENCHANT, Material.ENCHANTED_BOOK, true,
+                "§d§l注魔附魔", "§7为装备添加附魔", "§7支持多种附魔与自定义附魔"));
 
         // 驱魔 (砂轮)
-        inv.setItem(5, makeItem(Material.GRINDSTONE, "§c§l驱魔",
-            "§7移除物品上的所有附魔",
-            "§7手持物品点击"));
+        inv.setItem(5, makeFeatureItem(plugin, FeatureFlag.DISENCHANT, Material.GRINDSTONE, false,
+                "§c§l驱魔", "§7移除物品上的所有附魔", "§7手持物品点击"));
 
         // 领地管理 (草方块)
-        inv.setItem(6, makeItem(Material.GRASS_BLOCK, "§a§l领地管理",
-            "§7创建/管理你的圈地"));
+        inv.setItem(6, makeFeatureItem(plugin, FeatureFlag.CLAIM, Material.GRASS_BLOCK, false,
+                "§a§l领地管理", "§7创建/管理你的圈地"));
 
         // 关于 (闹钟)
         inv.setItem(7, makeItem(Material.CLOCK, "§a§l关于 Funstart",
             "§7查看插件版本和玩家信息"));
 
         // 市场 (金锭)
-        inv.setItem(8, makeItem(Material.GOLD_INGOT, "§6§l市场",
-            "§7浏览服务器商店与玩家市场",
-            "§7购买/出售物品"));
+        inv.setItem(8, makeFeatureItem(plugin, FeatureFlag.MARKET, Material.GOLD_INGOT, false,
+                "§6§l市场", "§7浏览服务器商店与玩家市场", "§7购买/出售物品"));
 
         // 领取奖励 (slot 18)
         if (plugin.getMarketManager().hasPendingRewards(player.getUniqueId())) {
@@ -114,12 +106,10 @@ public class PanelClockListener implements Listener {
 
         // Row 2: OP-only admin/prank panel
         if (player.isOp()) {
-            inv.setItem(9, makeItem(Material.REDSTONE_BLOCK, "§4§l管理面板",
-                "§7踢出玩家 / 切换模式",
-                "§7免费传送 / TPA / TPAH"));
-            inv.setItem(17, makeItem(Material.TNT, "§5§l恶搞面板",
-                "§7隐身 / 闪电 / 爆炸",
-                "§7移动物品栏"));
+            inv.setItem(9, makeFeatureItem(plugin, FeatureFlag.ADMIN, Material.REDSTONE_BLOCK, false,
+                    "§4§l管理面板", "§7踢出玩家 / 切换模式", "§7免费传送 / TPA / TPAH"));
+            inv.setItem(17, makeFeatureItem(plugin, FeatureFlag.PRANK, Material.TNT, false,
+                    "§5§l恶搞面板", "§7隐身 / 闪电 / 爆炸", "§7移动物品栏"));
         }
 
         // Bottom-right: player head
@@ -135,6 +125,25 @@ public class PanelClockListener implements Listener {
         inv.setItem(53, head);
 
         player.openInventory(inv);
+    }
+
+    private static ItemStack makeFeatureItem(FunstartPlugin plugin, FeatureFlag flag, Material mat, boolean enchanted, String name, String... lore) {
+        if (!plugin.getFeatureConfig().isEnabled(flag)) {
+            ItemStack barrier = new ItemStack(Material.BARRIER);
+            ItemMeta meta = barrier.getItemMeta();
+            meta.setDisplayName("§c§l" + flag.getDisplayName() + " §7(已禁用)");
+            List<String> disabledLore = new ArrayList<>();
+            for (String line : lore) disabledLore.add(line);
+            disabledLore.add("");
+            disabledLore.add("§c该功能已被管理员禁用");
+            meta.setLore(disabledLore);
+            barrier.setItemMeta(meta);
+            return barrier;
+        }
+        if (enchanted) {
+            return makeEnchantedItem(mat, name, lore);
+        }
+        return makeItem(mat, name, lore);
     }
 
     // ---- Open about panel ----
@@ -489,37 +498,55 @@ public class PanelClockListener implements Listener {
 
     // ---- Click handlers ----
 
+    private boolean checkFeature(Player player, FeatureFlag flag) {
+        if (!plugin.getFeatureConfig().isEnabled(flag)) {
+            player.sendMessage("§c该功能已被管理员禁用");
+            return false;
+        }
+        return true;
+    }
+
     private void handleMainClick(Player player, int slot) {
         switch (slot) {
-            case 0 -> GuiListener.openFor(player, plugin);
-            case 1 -> FswGuiListener.openMainMenu(player, plugin);
+            case 0 -> {
+                if (checkFeature(player, FeatureFlag.MAIN_MENU)) GuiListener.openFor(player, plugin);
+            }
+            case 1 -> {
+                if (checkFeature(player, FeatureFlag.WARP)) FswGuiListener.openMainMenu(player, plugin);
+            }
             case 2 -> TpagGuiListener.openFor(player, plugin, false);
             case 3 -> TpagGuiListener.openFor(player, plugin, true);
             case 4 -> {
+                if (!checkFeature(player, FeatureFlag.ENCHANT)) return;
                 player.closeInventory();
                 plugin.addPendingChatAction(player.getUniqueId(),
                     FunstartPlugin.PendingChatAction.Type.ENCHANT_CONFIRM, null, 600L);
                 player.sendMessage("§d[附魔] 请手持要附魔的物品, 聊天框输入 §ef §d继续");
             }
             case 5 -> {
+                if (!checkFeature(player, FeatureFlag.DISENCHANT)) return;
                 player.closeInventory();
                 plugin.addPendingChatAction(player.getUniqueId(),
                     FunstartPlugin.PendingChatAction.Type.DISENCHANT_CONFIRM, null, 600L);
                 player.sendMessage("§c[驱魔] 请手持要输入 §ef §c继续");
             }
-            case 6 -> ClaimGuiListener.openMain(player, plugin);
+            case 6 -> {
+                if (checkFeature(player, FeatureFlag.CLAIM)) ClaimGuiListener.openMain(player, plugin);
+            }
             case 7 -> openAbout(player, plugin);
-            case 8 -> MarketGuiListener.openMarket(player, plugin);
+            case 8 -> {
+                if (checkFeature(player, FeatureFlag.MARKET)) MarketGuiListener.openMarket(player, plugin);
+            }
             case 18 -> {
                 if (plugin.getMarketManager().hasPendingRewards(player.getUniqueId())) {
                     MarketGuiListener.openClaimGui(player, plugin);
                 }
             }
             case 9 -> {
-                if (player.isOp()) AdminGuiListener.openMain(player, plugin);
+                if (player.isOp() && checkFeature(player, FeatureFlag.ADMIN)) AdminGuiListener.openMain(player, plugin);
             }
             case 17 -> {
-                if (player.isOp()) PrankGuiListener.openMain(player, plugin);
+                if (player.isOp() && checkFeature(player, FeatureFlag.PRANK)) PrankGuiListener.openMain(player, plugin);
             }
             case 53 -> openMainMenu(player, plugin);
         }

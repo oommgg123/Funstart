@@ -1,61 +1,31 @@
 package moe.hinakusoft.funstart;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import moe.hinakusoft.funstart.command.FstGetCommand;
-import moe.hinakusoft.funstart.listener.ChainListener;
-import moe.hinakusoft.funstart.listener.ChatListener;
-import moe.hinakusoft.funstart.listener.FswGuiListener;
-import moe.hinakusoft.funstart.listener.GuiListener;
-import moe.hinakusoft.funstart.listener.HarvestListener;
-import moe.hinakusoft.funstart.listener.PanelClockListener;
-import moe.hinakusoft.funstart.listener.PlayerListener;
-import moe.hinakusoft.funstart.listener.TpaListener;
-import moe.hinakusoft.funstart.listener.TpagGuiListener;
-import moe.hinakusoft.funstart.listener.ClaimGuiListener;
-import moe.hinakusoft.funstart.listener.ClaimListener;
-import moe.hinakusoft.funstart.listener.DailyTaskListener;
-import moe.hinakusoft.funstart.listener.EnchantDowngradeListener;
-import moe.hinakusoft.funstart.listener.EnchantGuiListener;
-import moe.hinakusoft.funstart.listener.CustomEnchantListener;
 import moe.hinakusoft.funstart.custom.CustomItemManager;
 import moe.hinakusoft.funstart.custom.FSTFood;
-import moe.hinakusoft.funstart.manager.ClaimManager;
-import moe.hinakusoft.funstart.manager.ClaimParticleManager;
-import moe.hinakusoft.funstart.manager.FSTActionBar;
-import moe.hinakusoft.funstart.manager.LogManager;
-import moe.hinakusoft.funstart.manager.FstItemIdManager;
-import moe.hinakusoft.funstart.manager.AuthManager;
-import moe.hinakusoft.funstart.manager.ClaimParticleManager;
-import moe.hinakusoft.funstart.manager.RestApiServer;
-import moe.hinakusoft.funstart.manager.PlayerDataManager;
-import moe.hinakusoft.funstart.manager.TpaManager;
-import moe.hinakusoft.funstart.manager.WarpManager;
+import moe.hinakusoft.funstart.listener.*;
+import moe.hinakusoft.funstart.manager.*;
 import moe.hinakusoft.funstart.model.PlayerData;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
+import org.bukkit.NamespacedKey;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.TabCompleter;
+import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.potion.PotionEffect;
-import org.bukkit.potion.PotionEffectType;
-import org.bukkit.NamespacedKey;
-import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class FunstartPlugin
 extends JavaPlugin implements Listener {
@@ -79,9 +49,13 @@ extends JavaPlugin implements Listener {
     private AuthManager authManager;
     private ClaimParticleManager claimParticleManager;
     private RestApiServer restApiServer;
+    private FeatureConfig featureConfig;
+    private MultiThreadManager multiThreadManager;
 
     public void onEnable() {
         saveDefaultConfig();
+        this.featureConfig = new FeatureConfig(getDataFolder());
+        this.multiThreadManager = new MultiThreadManager(this, this.featureConfig);
         this.playerDataManager = new PlayerDataManager(this);
         this.tpaManager = new TpaManager();
         this.warpManager = new WarpManager(this);
@@ -241,6 +215,9 @@ extends JavaPlugin implements Listener {
         if (this.logManager != null) {
             this.logManager.onDisable();
         }
+        if (this.multiThreadManager != null) {
+            this.multiThreadManager.shutdown();
+        }
         this.getLogger().info("Funstart 已禁用");
     }
 
@@ -256,6 +233,14 @@ extends JavaPlugin implements Listener {
     public LogManager getLogManager() { return logManager; }
     public FstItemIdManager getFstItemIdManager() { return fstItemIdManager; }
     public AuthManager getAuthManager() { return authManager; }
+
+    public FeatureConfig getFeatureConfig() {
+        return featureConfig;
+    }
+
+    public MultiThreadManager getMultiThreadManager() {
+        return multiThreadManager;
+    }
     public Map<UUID, PendingChatAction> getPendingChatActions() { return pendingChatActions; }
 
     // ---- Effective UUID (cross-account login) ----

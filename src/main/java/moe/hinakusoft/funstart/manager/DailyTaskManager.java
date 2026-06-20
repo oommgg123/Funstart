@@ -1,9 +1,10 @@
 package moe.hinakusoft.funstart.manager;
 
+import moe.hinakusoft.funstart.model.PlayerData;
+
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
-import moe.hinakusoft.funstart.model.PlayerData;
 
 public class DailyTaskManager {
 
@@ -46,6 +47,7 @@ public class DailyTaskManager {
         if (index < 0 || index >= 3) return false;
         if (!data.getTaskCompleted()[index]) return false;
         data.getTaskCompleted()[index] = false;
+        data.getTaskProgress()[index] = 0;
         data.addPoints(TASKS.get(index).reward);
         return true;
     }

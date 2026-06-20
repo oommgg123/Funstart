@@ -1,23 +1,27 @@
 package moe.hinakusoft.funstart.listener;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
 import moe.hinakusoft.funstart.FunstartPlugin;
 import moe.hinakusoft.funstart.manager.BlockUtils;
 import moe.hinakusoft.funstart.model.ClaimRegion;
+import moe.hinakusoft.funstart.model.CustomEnchantment;
 import moe.hinakusoft.funstart.model.PlayerData;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.Ageable;
 import org.bukkit.block.data.BlockData;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.inventory.ItemStack;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import java.util.Set;
 
 public class ChainListener implements Listener {
 
@@ -27,6 +31,7 @@ public class ChainListener implements Listener {
     );
 
     private final FunstartPlugin plugin;
+    private final Random random = new Random();
 
     public ChainListener(FunstartPlugin plugin) {
         this.plugin = plugin;
@@ -85,8 +90,19 @@ public class ChainListener implements Listener {
                 break;
             }
             actuallyBroken.add(block);
+            boolean wasOre = isOreBlock(block);
+            Material oreType = block.getType();
             block.breakNaturally(tool);
             tool.damage(1, player);
+
+            if (wasOre && !tool.containsEnchantment(Enchantment.SILK_TOUCH)) {
+                int minerLevel = EnchantGuiListener.getCustomLevel(tool, plugin, CustomEnchantment.MINER_AGILITY);
+                if (minerLevel > 0 && isPickaxeType(tool.getType()) && random.nextInt(100) < Math.min(minerLevel * 8, 80)) {
+                    block.setType(oreType);
+                    block.breakNaturally(tool);
+                    tool.damage(1, player);
+                }
+            }
         }
 
         int actualNonOre = 0;
@@ -123,6 +139,10 @@ public class ChainListener implements Listener {
         Material type = block.getType();
         if (type == Material.ANCIENT_DEBRIS) return true;
         return type.name().endsWith("_ORE");
+    }
+
+    private boolean isPickaxeType(Material mat) {
+        return mat.name().contains("PICKAXE");
     }
 
     private boolean isCropBlock(Block block) {

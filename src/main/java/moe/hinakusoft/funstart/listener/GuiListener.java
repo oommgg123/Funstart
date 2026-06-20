@@ -1,8 +1,7 @@
 package moe.hinakusoft.funstart.listener;
 
-import java.util.List;
-import java.util.UUID;
 import moe.hinakusoft.funstart.FunstartPlugin;
+import moe.hinakusoft.funstart.model.FeatureFlag;
 import moe.hinakusoft.funstart.model.PlayerData;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -19,6 +18,10 @@ import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
 public class GuiListener implements Listener {
 
     private final FunstartPlugin plugin;
@@ -31,46 +34,23 @@ public class GuiListener implements Listener {
         PlayerData data = plugin.getPlayerDataManager().getPlayerData(player);
         Inventory inv = Bukkit.createInventory(new FstgHolder(player), 27, "§8⚙ Funstart 设置");
 
-        inv.setItem(11, makeToggleItem(
-            Material.DIAMOND_PICKAXE,
-            "§6§l每日任务",
-            List.of(
-                "§7查看并完成每日任务",
-                "§7获得额外点数奖励",
-                "§e点击打开每日任务"
-            )
-        ));
+        inv.setItem(11, makeFeatureItem(plugin, FeatureFlag.DAILY_TASK, Material.DIAMOND_PICKAXE,
+                "§6§l每日任务", "§7查看并完成每日任务", "§7获得额外点数奖励", "§e点击打开每日任务"));
 
-        inv.setItem(13, makeToggleItem(
+        inv.setItem(13, makeFeatureItem(plugin, FeatureFlag.CHAIN,
             data.isChainEnabled() ? Material.CHAIN : Material.BARRIER,
-            "§7§l连锁挖掘",
-            List.of(
-                "§7潜行时连锁破坏同类方块",
-                "§7每16个非矿物方块消耗1点",
-                "§a状态: " + (data.isChainEnabled() ? "§a已开启" : "§c已关闭")
-            )
-        ));
+                "§7§l连锁挖掘", "§7潜行时连锁破坏同类方块", "§7每16个非矿物方块消耗1点",
+                "§a状态: " + (data.isChainEnabled() ? "§a已开启" : "§c已关闭")));
 
-        inv.setItem(14, makeToggleItem(
+        inv.setItem(14, makeFeatureItem(plugin, FeatureFlag.REPAIR,
             data.isAutoFix() ? Material.SMITHING_TABLE : Material.BARRIER,
-            "§b§l自动修复",
-            List.of(
-                "§7自动修复耐久低于20%的物品",
-                "§7每50耐久消耗1点 (每5秒检查)",
-                "§a状态: " + (data.isAutoFix() ? "§a已开启" : "§c已关闭"),
-                "§e点击开关自动修复"
-            )
-        ));
+                "§b§l自动修复", "§7自动修复耐久低于20%的物品", "§7每50耐久消耗1点 (每5秒检查)",
+                "§a状态: " + (data.isAutoFix() ? "§a已开启" : "§c已关闭"), "§e点击开关自动修复"));
 
-        inv.setItem(15, makeToggleItem(
+        inv.setItem(15, makeFeatureItem(plugin, FeatureFlag.HARVEST,
             data.isHarvestEnabled() ? Material.WHEAT : Material.BARRIER,
-            "§e§l范围收割",
-            List.of(
-                "§7潜行+锄头收割成熟作物",
-                "§7自动重新播种，每4个扣1点",
-                "§a状态: " + (data.isHarvestEnabled() ? "§a已开启" : "§c已关闭")
-            )
-        ));
+                "§e§l范围收割", "§7潜行+锄头收割成熟作物", "§7自动重新播种，每4个扣1点",
+                "§a状态: " + (data.isHarvestEnabled() ? "§a已开启" : "§c已关闭")));
 
         inv.setItem(20, makeToggleItem(
             Material.GOLD_INGOT,
@@ -151,6 +131,31 @@ public class GuiListener implements Listener {
         ItemMeta meta = item.getItemMeta();
         meta.setDisplayName(name);
         meta.setLore(lore);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private static ItemStack makeFeatureItem(FunstartPlugin plugin, FeatureFlag flag, Material mat, String name, String... lore) {
+        if (!plugin.getFeatureConfig().isEnabled(flag)) {
+            ItemStack barrier = new ItemStack(Material.BARRIER);
+            ItemMeta meta = barrier.getItemMeta();
+            meta.setDisplayName("§c§l" + flag.getDisplayName() + " §7(已禁用)");
+            List<String> disabledLore = new ArrayList<>();
+            for (String line : lore) disabledLore.add(line);
+            disabledLore.add("");
+            disabledLore.add("§c该功能已被管理员禁用");
+            meta.setLore(disabledLore);
+            barrier.setItemMeta(meta);
+            return barrier;
+        }
+        return makeItem(mat, name, lore);
+    }
+
+    private static ItemStack makeItem(Material mat, String name, String... lore) {
+        ItemStack item = new ItemStack(mat);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(name);
+        meta.setLore(List.of(lore));
         item.setItemMeta(meta);
         return item;
     }
@@ -261,6 +266,14 @@ public class GuiListener implements Listener {
         }
     }
 
+    private boolean checkFeature(Player player, FeatureFlag flag) {
+        if (!plugin.getFeatureConfig().isEnabled(flag)) {
+            player.sendMessage("§c该功能已被管理员禁用");
+            return false;
+        }
+        return true;
+    }
+
     private void handleFstgClick(InventoryClickEvent event, FstgHolder holder) {
         event.setCancelled(true);
         Player player = (Player) event.getWhoClicked();
@@ -270,11 +283,13 @@ public class GuiListener implements Listener {
         PlayerData data = plugin.getPlayerDataManager().getPlayerData(player);
 
         if (slot == 11) {
+            if (!checkFeature(player, FeatureFlag.DAILY_TASK)) return;
             player.closeInventory();
             DailyTaskListener.openFor(player, plugin);
             return;
         }
         if (slot == 13) {
+            if (!checkFeature(player, FeatureFlag.CHAIN)) return;
             boolean newState = !data.isChainEnabled();
             data.setChainEnabled(newState);
             plugin.getPlayerDataManager().savePlayerData(player.getUniqueId());
@@ -291,6 +306,7 @@ public class GuiListener implements Listener {
             return;
         }
         if (slot == 14) {
+            if (!checkFeature(player, FeatureFlag.REPAIR)) return;
             boolean newState = !data.isAutoFix();
             data.setAutoFix(newState);
             plugin.getPlayerDataManager().savePlayerData(player.getUniqueId());
@@ -308,6 +324,7 @@ public class GuiListener implements Listener {
             return;
         }
         if (slot == 15) {
+            if (!checkFeature(player, FeatureFlag.HARVEST)) return;
             boolean newState = !data.isHarvestEnabled();
             data.setHarvestEnabled(newState);
             plugin.getPlayerDataManager().savePlayerData(player.getUniqueId());
@@ -324,6 +341,7 @@ public class GuiListener implements Listener {
             return;
         }
         if (slot == 22) {
+            if (!checkFeature(player, FeatureFlag.REPAIR)) return;
             fixAction(player, data);
             player.closeInventory();
             return;
@@ -334,6 +352,7 @@ public class GuiListener implements Listener {
             return;
         }
         if (slot == 23) {
+            if (!checkFeature(player, FeatureFlag.REPAIR)) return;
             player.closeInventory();
             plugin.addPendingChatAction(player.getUniqueId(),
                 FunstartPlugin.PendingChatAction.Type.ALL_FIX_CONFIRM, "");

@@ -3,19 +3,10 @@ package moe.hinakusoft.funstart.listener;
 import moe.hinakusoft.funstart.FunstartPlugin;
 import moe.hinakusoft.funstart.manager.FSTActionBar;
 import moe.hinakusoft.funstart.model.CustomEnchantment;
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.Particle;
-import org.bukkit.World;
+import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.enchantments.Enchantment;
-import org.bukkit.entity.Cat;
-import org.bukkit.entity.Entity;
-import org.bukkit.entity.LivingEntity;
-import org.bukkit.entity.Player;
-import org.bukkit.entity.Projectile;
-import org.bukkit.entity.Villager;
-import org.bukkit.entity.Wolf;
+import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -23,18 +14,14 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.util.Vector;
 
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.Set;
-import java.util.UUID;
 
 public class CustomEnchantListener implements Listener {
 
@@ -58,6 +45,9 @@ public class CustomEnchantListener implements Listener {
     private final Map<UUID, Long> lastLeafTick = new HashMap<>();
     private final Map<UUID, Long> lastExplosiveThrow = new ConcurrentHashMap<>();
     private final Set<UUID> shikiEquipped = new HashSet<>();
+    private static final long BURST_WINDOW_MS = 200L;
+    private final Map<UUID, Long> lastMultishotBurst = new ConcurrentHashMap<>();
+    private final Set<Block> processingMinerBlocks = new HashSet<>();
 
     public CustomEnchantListener(FunstartPlugin plugin) {
         this.plugin = plugin;
@@ -117,6 +107,8 @@ public class CustomEnchantListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onBlockBreak(BlockBreakEvent event) {
+        if (event.isCancelled()) return;
+
         Player player = event.getPlayer();
 
         if (hasShikiInHand(player) && random.nextInt(100) < 16) {
@@ -132,12 +124,28 @@ public class CustomEnchantListener implements Listener {
 
         ItemStack tool = player.getInventory().getItemInMainHand();
         if (tool.containsEnchantment(Enchantment.SILK_TOUCH)) return;
+        if (!isPickaxe(tool)) return;
+
+        if (processingMinerBlocks.contains(block)) return;
 
         if (random.nextInt(100) < Math.min(level * 8, 80)) {
-            block.getWorld().dropItemNaturally(block.getLocation().add(0.5, 0.5, 0.5),
-                new ItemStack(type, 1));
-            actionBar.add(player, "§5[矿工之敏] §a双倍掉落!");
+            processingMinerBlocks.add(block);
+            Material oreType = block.getType();
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (block.getType() == Material.AIR) {
+                    block.setType(oreType);
+                    block.breakNaturally(tool);
+                    tool.damage(1, player);
+                }
+                processingMinerBlocks.remove(block);
+            });
+            actionBar.add(player, "§5[矿工之敏] §a双倍触发!");
         }
+    }
+
+    private boolean isPickaxe(ItemStack item) {
+        if (item == null || item.getType().isAir()) return false;
+        return item.getType().name().contains("PICKAXE");
     }
 
     // ========== LIFE_STEAL ==========
@@ -227,23 +235,49 @@ public class CustomEnchantListener implements Listener {
         int level = getHighestLevel(player, CustomEnchantment.EXPLOSIVE_THROW);
         if (level <= 0) return;
 
+        ItemStack weapon = player.getInventory().getItemInMainHand();
+        boolean hasMultishot = weapon != null && weapon.getType() == Material.CROSSBOW
+                && weapon.containsEnchantment(Enchantment.MULTISHOT);
+
         UUID uid = player.getUniqueId();
         long now = System.currentTimeMillis();
-        Long lastUse = lastExplosiveThrow.get(uid);
-        long cd = getExplosiveCooldown(level);
-        if (lastUse != null && now - lastUse < cd) {
-            actionBar.add(player, "§5[爆裂投掷] §c冷却中 (" + ((cd - (now - lastUse)) / 1000 + 1) + "s)");
-            return;
-        }
-        lastExplosiveThrow.put(uid, now);
 
+        if (hasMultishot) {
+            Long lastBurst = lastMultishotBurst.get(uid);
+            if (lastBurst != null && now - lastBurst < BURST_WINDOW_MS) {
+                doExplosion(player, projectile, level);
+                lastMultishotBurst.put(uid, now);
+                projectile.remove();
+                return;
+            }
+            long cd = getExplosiveCooldown(level);
+            Long lastUse = lastExplosiveThrow.get(uid);
+            if (lastUse != null && now - lastUse < cd) {
+                actionBar.add(player, "§5[爆裂投掷] §c冷却中 (" + ((cd - (now - lastUse)) / 1000 + 1) + "s)");
+                return;
+            }
+            lastExplosiveThrow.put(uid, now);
+            lastMultishotBurst.put(uid, now);
+        } else {
+            long cd = getExplosiveCooldown(level);
+            Long lastUse = lastExplosiveThrow.get(uid);
+            if (lastUse != null && now - lastUse < cd) {
+                actionBar.add(player, "§5[爆裂投掷] §c冷却中 (" + ((cd - (now - lastUse)) / 1000 + 1) + "s)");
+                return;
+            }
+            lastExplosiveThrow.put(uid, now);
+        }
+
+        doExplosion(player, projectile, level);
+        projectile.remove();
+    }
+
+    private void doExplosion(Player player, Projectile projectile, int level) {
         Location hitLoc = projectile.getLocation();
         float power = (0.3f + (level - 1) * 0.3f) * 1.35f;
 
-        // Visual explosion
         hitLoc.getWorld().createExplosion(hitLoc, power, false, false, player);
 
-        // Manual damage with custom rules
         double radius = power * 2.5;
         double maxDamage = (6.0 + level * 2.0) * 1.35;
 
@@ -337,5 +371,30 @@ public class CustomEnchantListener implements Listener {
             target.addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 60 + level * 20, level - 1, true, false));
             actionBar.add(player, "§5[时间减缓] §a减速目标");
         }
+    }
+
+    // ========== DENSE_SHOT ==========
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onProjectileLaunch(ProjectileLaunchEvent event) {
+        Projectile projectile = event.getEntity();
+        if (!(projectile.getShooter() instanceof Player player)) return;
+
+        int level = getHighestLevel(player, CustomEnchantment.DENSE_SHOT);
+        if (level <= 0) return;
+
+        ItemStack weapon = player.getInventory().getItemInMainHand();
+        if (weapon.getType() != Material.CROSSBOW) return;
+        if (!weapon.containsEnchantment(Enchantment.MULTISHOT)) return;
+
+        double convergence = level / 10.0;
+        Vector aimDir = player.getEyeLocation().getDirection().normalize();
+        Vector currentVel = projectile.getVelocity();
+        double speed = currentVel.length();
+        if (speed < 0.1) return;
+
+        Vector newDir = currentVel.normalize().multiply(1 - convergence)
+                .add(aimDir.multiply(convergence)).normalize();
+        projectile.setVelocity(newDir.multiply(speed));
     }
 }

@@ -1,17 +1,9 @@
 package moe.hinakusoft.funstart.listener;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
 import moe.hinakusoft.funstart.FunstartPlugin;
 import moe.hinakusoft.funstart.model.CustomEnchantment;
 import moe.hinakusoft.funstart.model.PlayerData;
-import org.bukkit.Bukkit;
-import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
-import org.bukkit.Particle;
-import org.bukkit.Registry;
-import org.bukkit.Sound;
+import org.bukkit.*;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -24,6 +16,10 @@ import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
 
 public class EnchantGuiListener implements Listener {
 
@@ -219,10 +215,14 @@ public class EnchantGuiListener implements Listener {
 
         List<String> lore = new ArrayList<>();
         lore.add("§7" + ce.getDescription());
+        String reqLine = getRequirementLine(ce, held);
+        if (!reqLine.isEmpty()) lore.add(reqLine);
         lore.add("§7当前: " + (currentLevel > 0 ? "§e" + toRoman(currentLevel) : "§c无"));
 
         if (currentLevel >= material.maxLevel || targetLevel > material.maxLevel) {
             lore.add("§c已达此材料最高等级");
+        } else if (!canApplyToItemStatic(held, ce)) {
+            lore.add("§c当前物品不满足附魔条件");
         } else {
             lore.add("§7目标: §e" + toRoman(targetLevel));
             addCostLore(lore, material, targetLevel);
@@ -231,6 +231,27 @@ public class EnchantGuiListener implements Listener {
         meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         is.setItemMeta(meta);
         return is;
+    }
+
+    private static String getRequirementLine(CustomEnchantment ce, ItemStack held) {
+        return switch (ce) {
+            case EXPLOSIVE_THROW -> "§7适用: 弓/弩/三叉戟/雪球";
+            case DENSE_SHOT -> "§7需求: 弩 + 多重射击";
+            case MINER_AGILITY -> "§7适用: 镐";
+            default -> "";
+        };
+    }
+
+    private static boolean canApplyToItemStatic(ItemStack item, CustomEnchantment ce) {
+        if (item == null || item.getType().isAir()) return true;
+        Material type = item.getType();
+        return switch (ce) {
+            case EXPLOSIVE_THROW ->
+                    type == Material.BOW || type == Material.CROSSBOW || type == Material.TRIDENT || type == Material.SNOWBALL;
+            case DENSE_SHOT -> type == Material.CROSSBOW && item.containsEnchantment(Enchantment.MULTISHOT);
+            case MINER_AGILITY -> type.name().contains("PICKAXE");
+            default -> true;
+        };
     }
 
     private static void addCostLore(List<String> lore, EnchantMaterial material, int level) {
@@ -366,6 +387,7 @@ public class EnchantGuiListener implements Listener {
         }
 
         int currentLevel = getCustomLevel(item, plugin, ce);
+        if (!canApplyToItem(item, ce, player)) return;
         int targetLevel = currentLevel > 0 ? currentLevel + 1 : material.minLevel;
         if (targetLevel < material.minLevel) targetLevel = material.minLevel;
         if (targetLevel > material.maxLevel) {
@@ -431,6 +453,36 @@ public class EnchantGuiListener implements Listener {
                 yield Math.max(10, 100 - (level - 6) * 10);
             }
         };
+    }
+
+    private boolean canApplyToItem(ItemStack item, CustomEnchantment ce, Player player) {
+        Material type = item.getType();
+        switch (ce) {
+            case EXPLOSIVE_THROW:
+                if (type != Material.BOW && type != Material.CROSSBOW && type != Material.TRIDENT && type != Material.SNOWBALL) {
+                    player.sendMessage("§c爆裂投掷只能附魔在 弓/弩/三叉戟/雪球 上");
+                    return false;
+                }
+                return true;
+            case DENSE_SHOT:
+                if (type != Material.CROSSBOW) {
+                    player.sendMessage("§c密集射击只能附魔在弩上");
+                    return false;
+                }
+                if (!item.containsEnchantment(Enchantment.MULTISHOT)) {
+                    player.sendMessage("§c密集射击需要弩拥有多重射击附魔");
+                    return false;
+                }
+                return true;
+            case MINER_AGILITY:
+                if (!type.name().contains("PICKAXE")) {
+                    player.sendMessage("§c矿工之敏只能附魔在镐上");
+                    return false;
+                }
+                return true;
+            default:
+                return true;
+        }
     }
 
     // ========== PDC / Lore for Custom Enchants ==========
