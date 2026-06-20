@@ -1,6 +1,5 @@
 package moe.hinakusoft.funstart.listener;
 
-import java.util.UUID;
 import moe.hinakusoft.funstart.FunstartPlugin;
 import moe.hinakusoft.funstart.FunstartPlugin.PendingChatAction;
 import moe.hinakusoft.funstart.FunstartPlugin.ShareData;
@@ -10,7 +9,6 @@ import moe.hinakusoft.funstart.manager.TpaManager;
 import moe.hinakusoft.funstart.manager.WarpManager.ShareRequest;
 import moe.hinakusoft.funstart.model.PlayerData;
 import moe.hinakusoft.funstart.model.WarpPoint;
-import moe.hinakusoft.funstart.listener.MarketGuiListener;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -20,6 +18,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
+
+import java.util.UUID;
 
 public class ChatListener implements Listener {
 
@@ -448,6 +448,14 @@ public class ChatListener implements Listener {
             plugin.getServer().getScheduler().runTask(plugin, () -> {
                 plugin.getClaimManager().handleGlobalClaimChat(player, msg);
             });
+        }
+
+        // Prepend rank title to chat message (only if not cancelled)
+        if (!event.isCancelled()) {
+            String rankDisplay = plugin.getRankManager().getRankDisplay(player.getUniqueId());
+            if (!rankDisplay.isEmpty()) {
+                event.setFormat(rankDisplay + "§f" + player.getName() + "§7: §f%s");
+            }
         }
     }
 

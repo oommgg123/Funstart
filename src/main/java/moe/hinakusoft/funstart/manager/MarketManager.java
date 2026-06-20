@@ -7,12 +7,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 public class MarketManager {
 
@@ -20,6 +15,7 @@ public class MarketManager {
     private final List<MarketItem> items = new ArrayList<>();
     private final Map<UUID, Double> pendingPoints = new HashMap<>();
     private final Map<UUID, List<ItemStackData>> pendingItems = new HashMap<>();
+    private final Map<String, Double> lastTradePrice = new HashMap<>();
 
     public MarketManager(FunstartPlugin plugin) {
         this.plugin = plugin;
@@ -60,6 +56,12 @@ public class MarketManager {
                 pendingItems.put(uid, itemList);
             }
         }
+        // Load last trade prices
+        if (config.contains("lastTradePrice")) {
+            for (String key : config.getConfigurationSection("lastTradePrice").getKeys(false)) {
+                lastTradePrice.put(key, config.getDouble("lastTradePrice." + key));
+            }
+        }
     }
 
     public void save() {
@@ -79,6 +81,10 @@ public class MarketManager {
                 for (ItemStackData d : e.getValue()) itemRaw.add(d.serialize());
                 config.set("pendingItems." + e.getKey().toString(), itemRaw);
             }
+        }
+        // Save last trade prices
+        for (Map.Entry<String, Double> e : lastTradePrice.entrySet()) {
+            config.set("lastTradePrice." + e.getKey(), e.getValue());
         }
         try {
             config.save(file);
@@ -139,12 +145,17 @@ public class MarketManager {
                 changed = true;
             }
         }
-        // Handle expired player listings → return items to seller's pending
+        // Handle expired player listings → return remaining stock to seller's pending
         Iterator<MarketItem> it = items.iterator();
         while (it.hasNext()) {
             MarketItem item = it.next();
             if (item.getType() == MarketItem.Type.PLAYER_LISTING && item.isExpired()) {
-                addPendingItem(item.getSellerId(), item.getItemData());
+                int remaining = item.getStock();
+                if (remaining > 0) {
+                    ItemStackData remainingData = new ItemStackData(
+                            item.getItemData().toItemStack().asQuantity(remaining));
+                    addPendingItem(item.getSellerId(), remainingData);
+                }
                 it.remove();
                 changed = true;
             }
@@ -214,5 +225,32 @@ public class MarketManager {
         }
         if (count == 0) return "§7暂无市场价";
         return String.format("§7市场均价: §e%.1f §7点数", total / count);
+    }
+
+    /**
+     * Get last trade price for an item type (by serialized string)
+     */
+    public double getLastTradePrice(String serialized) {
+        return lastTradePrice.getOrDefault(serialized, -1.0);
+    }
+
+    /**
+     * Record a trade to update last trade price
+     */
+    public void recordTrade(String serialized, double price) {
+        lastTradePrice.put(serialized, price);
+    }
+
+    /**
+     * Delist a player's own listing and return items to seller's pending
+     */
+    public void delistPlayerListing(MarketItem item) {
+        int remaining = item.getStock();
+        if (remaining > 0) {
+            ItemStackData remainingData = new ItemStackData(
+                    item.getItemData().toItemStack().asQuantity(remaining));
+            addPendingItem(item.getSellerId(), remainingData);
+        }
+        removeItem(item);
     }
 }

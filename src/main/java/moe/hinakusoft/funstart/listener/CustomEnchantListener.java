@@ -222,9 +222,21 @@ public class CustomEnchantListener implements Listener {
 
     // ========== EXPLOSIVE_THROW ==========
 
+    private final Map<UUID, Integer> explosionMsgCount = new ConcurrentHashMap<>();
+
     private long getExplosiveCooldown(int level) {
         long cd = 1950L - (level - 1) * 65L;
         return Math.max(cd, 1690L);
+    }
+
+    private long getCrossbowCooldown(int level, ItemStack weapon) {
+        long base = getExplosiveCooldown(level);
+        double multiplier = 1.4;
+        int ms = weapon.getEnchantmentLevel(Enchantment.MULTISHOT);
+        if (ms > 0) multiplier *= Math.pow(1.11, ms);
+        int qc = weapon.getEnchantmentLevel(Enchantment.QUICK_CHARGE);
+        if (qc > 0) multiplier *= Math.pow(1.12, qc);
+        return (long) (base * multiplier);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -232,43 +244,53 @@ public class CustomEnchantListener implements Listener {
         Projectile projectile = event.getEntity();
         if (!(projectile.getShooter() instanceof Player player)) return;
 
+        if (event.getHitEntity() != null && event.getHitEntity().equals(player)) {
+            projectile.remove();
+            return;
+        }
+
         int level = getHighestLevel(player, CustomEnchantment.EXPLOSIVE_THROW);
         if (level <= 0) return;
 
         ItemStack weapon = player.getInventory().getItemInMainHand();
-        boolean hasMultishot = weapon != null && weapon.getType() == Material.CROSSBOW
-                && weapon.containsEnchantment(Enchantment.MULTISHOT);
+        boolean isCrossbow = weapon != null && weapon.getType() == Material.CROSSBOW;
+        boolean hasMultishot = isCrossbow && weapon.containsEnchantment(Enchantment.MULTISHOT);
 
         UUID uid = player.getUniqueId();
         long now = System.currentTimeMillis();
+        boolean canExplode = false;
 
         if (hasMultishot) {
             Long lastBurst = lastMultishotBurst.get(uid);
             if (lastBurst != null && now - lastBurst < BURST_WINDOW_MS) {
-                doExplosion(player, projectile, level);
+                canExplode = true;
                 lastMultishotBurst.put(uid, now);
+            } else {
+                long cd = getCrossbowCooldown(level, weapon);
+                Long lastUse = lastExplosiveThrow.get(uid);
+                if (lastUse == null || now - lastUse >= cd) {
+                    lastExplosiveThrow.put(uid, now);
+                    lastMultishotBurst.put(uid, now);
+                    explosionMsgCount.remove(uid);
+                    canExplode = true;
+                }
+            }
+        } else {
+            long cd = isCrossbow ? getCrossbowCooldown(level, weapon) : getExplosiveCooldown(level);
+            Long lastUse = lastExplosiveThrow.get(uid);
+            if (lastUse != null && now - lastUse < cd) {
+                actionBar.add(player, "§5[爆裂投掷] §c冷却中 (" + ((cd - (now - lastUse)) / 1000 + 1) + "s)");
                 projectile.remove();
                 return;
             }
-            long cd = getExplosiveCooldown(level);
-            Long lastUse = lastExplosiveThrow.get(uid);
-            if (lastUse != null && now - lastUse < cd) {
-                actionBar.add(player, "§5[爆裂投掷] §c冷却中 (" + ((cd - (now - lastUse)) / 1000 + 1) + "s)");
-                return;
-            }
             lastExplosiveThrow.put(uid, now);
-            lastMultishotBurst.put(uid, now);
-        } else {
-            long cd = getExplosiveCooldown(level);
-            Long lastUse = lastExplosiveThrow.get(uid);
-            if (lastUse != null && now - lastUse < cd) {
-                actionBar.add(player, "§5[爆裂投掷] §c冷却中 (" + ((cd - (now - lastUse)) / 1000 + 1) + "s)");
-                return;
-            }
-            lastExplosiveThrow.put(uid, now);
+            explosionMsgCount.remove(uid);
+            canExplode = true;
         }
 
-        doExplosion(player, projectile, level);
+        if (canExplode) {
+            doExplosion(player, projectile, level);
+        }
         projectile.remove();
     }
 
@@ -294,7 +316,13 @@ public class CustomEnchantListener implements Listener {
             living.damage(damage, player);
         }
 
-        actionBar.add(player, "§5[爆裂投掷] §a爆炸!");
+        UUID uid = player.getUniqueId();
+        int cnt = explosionMsgCount.merge(uid, 1, Integer::sum);
+        if (cnt <= 10) {
+            actionBar.add(player, "§5[爆裂投掷] §a爆炸!");
+        } else if (cnt == 11) {
+            actionBar.add(player, "§5[爆裂投掷] §c*...");
+        }
     }
 
     // ========== LEAF_HIDDEN ==========
@@ -380,21 +408,44 @@ public class CustomEnchantListener implements Listener {
         Projectile projectile = event.getEntity();
         if (!(projectile.getShooter() instanceof Player player)) return;
 
-        int level = getHighestLevel(player, CustomEnchantment.DENSE_SHOT);
-        if (level <= 0) return;
-
         ItemStack weapon = player.getInventory().getItemInMainHand();
-        if (weapon.getType() != Material.CROSSBOW) return;
-        if (!weapon.containsEnchantment(Enchantment.MULTISHOT)) return;
 
-        double convergence = level / 10.0;
-        Vector aimDir = player.getEyeLocation().getDirection().normalize();
-        Vector currentVel = projectile.getVelocity();
-        double speed = currentVel.length();
-        if (speed < 0.1) return;
+        // Dense shot convergence
+        int denseLevel = getHighestLevel(player, CustomEnchantment.DENSE_SHOT);
+        if (denseLevel > 0 && weapon.getType() == Material.CROSSBOW && weapon.containsEnchantment(Enchantment.MULTISHOT)) {
+            double convergence = denseLevel / 10.0;
+            Vector aimDir = player.getEyeLocation().getDirection().normalize();
+            Vector currentVel = projectile.getVelocity();
+            double speed = currentVel.length();
+            if (speed >= 0.1) {
+                Vector newDir = currentVel.normalize().multiply(1 - convergence)
+                        .add(aimDir.multiply(convergence)).normalize();
+                projectile.setVelocity(newDir.multiply(speed));
+            }
+        }
 
-        Vector newDir = currentVel.normalize().multiply(1 - convergence)
-                .add(aimDir.multiply(convergence)).normalize();
-        projectile.setVelocity(newDir.multiply(speed));
+        // Schedule arrow removal after 1s for crossbows with explosive throw
+        if (weapon.getType() == Material.CROSSBOW && projectile instanceof Arrow) {
+            int exLevel = getHighestLevel(player, CustomEnchantment.EXPLOSIVE_THROW);
+            if (exLevel > 0) {
+                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                    if (!projectile.isDead()) projectile.remove();
+                }, 20L);
+            }
+        }
+    }
+
+    // Self-hit protection for dense shot (and general)
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onDenseShotHit(ProjectileHitEvent event) {
+        Projectile projectile = event.getEntity();
+        if (!(projectile.getShooter() instanceof Player player)) return;
+        if (event.getHitEntity() == null || !event.getHitEntity().equals(player)) return;
+
+        int level = getHighestLevel(player, CustomEnchantment.DENSE_SHOT);
+        if (level > 0) {
+            projectile.remove();
+            event.setCancelled(true);
+        }
     }
 }

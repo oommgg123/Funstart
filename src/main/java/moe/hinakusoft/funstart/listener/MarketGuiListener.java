@@ -2,18 +2,18 @@ package moe.hinakusoft.funstart.listener;
 
 import moe.hinakusoft.funstart.FunstartPlugin;
 import moe.hinakusoft.funstart.manager.MarketManager;
+import moe.hinakusoft.funstart.manager.RankManager;
 import moe.hinakusoft.funstart.model.ItemStackData;
 import moe.hinakusoft.funstart.model.MarketItem;
 import moe.hinakusoft.funstart.model.PlayerData;
+import moe.hinakusoft.funstart.model.PlayerRank;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
-import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
-import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerItemHeldEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerToggleSneakEvent;
@@ -22,11 +22,7 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 public class MarketGuiListener implements Listener {
 
@@ -34,6 +30,10 @@ public class MarketGuiListener implements Listener {
     private final MarketManager marketManager;
     private final Map<UUID, ListingSession> listingSessions = new HashMap<>();
     private final Map<UUID, BuyingSession> buyingSessions = new HashMap<>();
+    // 0 = all, 1 = player listings only, 2 = server shop only
+    private static final String FILTER_NONE = "§a全部";
+    private static final String FILTER_PLAYER = "§b玩家";
+    private static final String FILTER_SERVER = "§6服务器";
 
     public MarketGuiListener(FunstartPlugin plugin) {
         this.plugin = plugin;
@@ -49,19 +49,42 @@ public class MarketGuiListener implements Listener {
     }
 
     private static void openMarket(Player player, FunstartPlugin plugin, int page) {
+        openMarket(player, plugin, page, 0);
+    }
+
+    private static void openMarket(Player player, FunstartPlugin plugin, int page, int filter) {
         MarketManager mm = plugin.getMarketManager();
-        List<MarketItem> all = mm.getItems();
+        List<MarketItem> all = filter == 0 ? new ArrayList<>(mm.getItems())
+                : (filter == 1 ? mm.getPlayerListings() : mm.getOpShopItems());
+
+        // Auto-remove items with stock 0 from players
+        boolean changed = false;
+        Iterator<MarketItem> it = all.iterator();
+        while (it.hasNext()) {
+            MarketItem mi = it.next();
+            if (mi.getType() == MarketItem.Type.PLAYER_LISTING && mi.getStock() <= 0) {
+                mm.delistPlayerListing(mi);
+                changed = true;
+            }
+        }
+        if (changed) {
+            all = filter == 0 ? new ArrayList<>(mm.getItems())
+                    : (filter == 1 ? mm.getPlayerListings() : mm.getOpShopItems());
+        }
+
         int totalPages = Math.max(1, (int) Math.ceil(all.size() / (double) PAGE_SIZE));
         if (page < 0) page = 0;
         if (page >= totalPages) page = totalPages - 1;
 
-        Inventory inv = Bukkit.createInventory(new MarketHolder(player, page), 54,
-            "§6市场 (" + (page + 1) + "/" + totalPages + ")");
+        String filterLabel = filter == 1 ? FILTER_PLAYER : (filter == 2 ? FILTER_SERVER : FILTER_NONE);
+        Inventory inv = Bukkit.createInventory(new MarketHolder(player, page, filter), 54,
+                "§6市场 " + filterLabel + " §7(" + (page + 1) + "/" + totalPages + ")");
 
         int start = page * PAGE_SIZE;
         for (int i = 0; i < PAGE_SIZE && start + i < all.size(); i++) {
             MarketItem mi = all.get(start + i);
             ItemStack display = mi.getItemData().toItemStack().clone();
+            display.setAmount(1);
             ItemMeta meta = display.getItemMeta();
             List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
 
@@ -80,12 +103,16 @@ public class MarketGuiListener implements Listener {
             }
             if (mi.getType() == MarketItem.Type.OP_SHOP) {
                 lore.add("§7基础价: §e" + String.format("%.1f", mi.getBasePrice()));
+                lore.add("§a左键购买");
             } else {
                 long remaining = mi.getExpireTime() > 0 ? (mi.getExpireTime() - System.currentTimeMillis()) / 3600000L : -1;
                 if (remaining > 0) lore.add("§7剩余: §e" + remaining + " §7小时");
-                else lore.add("§7永久上架");
+                if (mi.getSellerId().equals(player.getUniqueId())) {
+                    lore.add("§c右键下架");
+                } else {
+                    lore.add("§a左键购买");
+                }
             }
-            lore.add("§a点击购买");
 
             meta.setLore(lore);
             display.setItemMeta(meta);
@@ -95,6 +122,11 @@ public class MarketGuiListener implements Listener {
         // Navigation
         if (page > 0) inv.setItem(45, makeItem(Material.ARROW, "§a上一页"));
         if (page < totalPages - 1) inv.setItem(53, makeItem(Material.ARROW, "§a下一页"));
+
+        // Filter buttons
+        inv.setItem(46, makeItem(Material.COMPASS, "§e筛选: " + filterLabel,
+                "§7左键切换筛选模式",
+                "§7" + FILTER_NONE + " §7| " + FILTER_PLAYER + " §7| " + FILTER_SERVER));
 
         // List item button
         inv.setItem(49, makeItem(Material.HOPPER, "§e§l上架物品",
@@ -132,13 +164,22 @@ public class MarketGuiListener implements Listener {
 
         int slot = event.getRawSlot();
         int page = holder.getPage();
+        int filter = holder.getFilter();
 
         if (slot >= 0 && slot < PAGE_SIZE) {
-            handleItemClick(player, page, slot);
+            if (event.isRightClick()) {
+                handleItemRightClick(player, page, slot, filter);
+            } else {
+                handleItemClick(player, page, slot, filter);
+            }
         } else if (slot == 45 && page > 0) {
-            openMarket(player, plugin, page - 1);
+            openMarket(player, plugin, page - 1, filter);
+        } else if (slot == 46) {
+            // Cycle filter: all -> player -> server -> all
+            int nextFilter = (filter + 1) % 3;
+            openMarket(player, plugin, 0, nextFilter);
         } else if (slot == 53) {
-            openMarket(player, plugin, page + 1);
+            openMarket(player, plugin, page + 1, filter);
         } else if (slot == 48) {
             openClaimGui(player, plugin);
         } else if (slot == 49) {
@@ -170,15 +211,32 @@ public class MarketGuiListener implements Listener {
         }
     }
 
-    private void handleItemClick(Player player, int page, int slot) {
+    private MarketItem getMarketItemByFilteredIndex(int index, int filter) {
         MarketManager mm = plugin.getMarketManager();
-        List<MarketItem> all = mm.getItems();
-        int index = page * PAGE_SIZE + slot;
-        if (index >= all.size()) return;
+        if (filter == 0) return mm.getItemBySlot(index);
+        List<MarketItem> list = filter == 1 ? mm.getPlayerListings() : mm.getOpShopItems();
+        if (index < 0 || index >= list.size()) return null;
+        return list.get(index);
+    }
 
-        MarketItem mi = all.get(index);
+    private void handleItemClick(Player player, int page, int slot, int filter) {
+        int index = page * PAGE_SIZE + slot;
+        MarketItem mi = getMarketItemByFilteredIndex(index, filter);
+        if (mi == null) return;
+
         if (mi.getStock() <= 0) {
-            player.sendMessage("§c该物品已售罄");
+            if (mi.getType() == MarketItem.Type.PLAYER_LISTING) {
+                plugin.getMarketManager().delistPlayerListing(mi);
+                player.sendMessage("§c该物品已售罄，已自动下架");
+                openMarket(player, plugin, page, filter);
+            } else {
+                player.sendMessage("§c该物品已售罄");
+            }
+            return;
+        }
+
+        if (mi.getType() == MarketItem.Type.PLAYER_LISTING && mi.getSellerId().equals(player.getUniqueId())) {
+            player.sendMessage("§c不能购买自己的物品");
             return;
         }
 
@@ -191,13 +249,29 @@ public class MarketGuiListener implements Listener {
         }
 
         // Start buy flow
-        buyingSessions.put(player.getUniqueId(), new BuyingSession(mi, index));
+        buyingSessions.put(player.getUniqueId(), new BuyingSession(mi, index, filter));
         player.closeInventory();
         plugin.addPendingChatAction(player.getUniqueId(),
             FunstartPlugin.PendingChatAction.Type.MARKET_BUY_QTY, null, 30000L);
         player.sendMessage("§6[市场] " + mi.getItemData().toItemStack().getType().name()
             + " §e" + String.format("%.1f", price) + " §6点数/个");
         player.sendMessage("§6请输入购买数量 (最多 §e" + maxBuy + " §6个, 0=取消):");
+    }
+
+    private void handleItemRightClick(Player player, int page, int slot, int filter) {
+        int index = page * PAGE_SIZE + slot;
+        MarketItem mi = getMarketItemByFilteredIndex(index, filter);
+        if (mi == null || mi.getType() != MarketItem.Type.PLAYER_LISTING) return;
+
+        if (!mi.getSellerId().equals(player.getUniqueId())) {
+            player.sendMessage("§c这不是你上架的物品");
+            return;
+        }
+
+        plugin.getMarketManager().delistPlayerListing(mi);
+        player.sendMessage("§a[市场] 已下架 " + mi.getItemData().toItemStack().getType().name()
+                + " §e(" + mi.getStock() + " §a个已返还到待领取)");
+        openMarket(player, plugin, page, filter);
     }
 
     @EventHandler
@@ -215,13 +289,6 @@ public class MarketGuiListener implements Listener {
         public double pricePerUnit;
         public long durationHours;
         public int step; // 0=qty, 1=price, 2=duration
-    }
-
-    public static class BuyingSession {
-        public MarketItem marketItem;
-        public int listIndex;
-        public int quantity;
-        public BuyingSession(MarketItem mi, int idx) { this.marketItem = mi; this.listIndex = idx; }
     }
 
     public void handleListingChat(Player player, String msg, FunstartPlugin.PendingChatAction action) {
@@ -264,13 +331,34 @@ public class MarketGuiListener implements Listener {
                 player.sendMessage("§c请输入有效数字");
             }
         } else if (session.step == 2) {
-            // Duration
+            // Duration — only 12 or 24 hours
             try {
                 long hours = Long.parseLong(msg.trim());
-                if (hours < 0) { player.sendMessage("§c已取消上架"); cleanupListing(uid); return; }
+                if (hours != 12 && hours != 24) {
+                    player.sendMessage("§c上架时长只能为 12 或 24 小时，请重新输入:");
+                    return;
+                }
                 session.durationHours = hours;
 
-                // Create listing
+                double feePercent = (hours == 12) ? 2.5 : 5.0;
+
+                // Confirm with player
+                player.sendMessage("§6[市场] 上架确认:");
+                player.sendMessage("§7物品: §e" + session.item.getType().name() + " §7× §e" + session.quantity);
+                player.sendMessage("§7单价: §e" + String.format("%.1f", session.pricePerUnit) + " §7点数");
+                player.sendMessage("§7时长: §e" + hours + " §7小时");
+                player.sendMessage("§7手续费: §e" + feePercent + "%");
+                player.sendMessage("§7输入 §ayes §7确认上架，输入 §cno §7取消:");
+
+                session.step = 3;
+                plugin.addPendingChatAction(uid, FunstartPlugin.PendingChatAction.Type.MARKET_LIST_DURATION, null, 30000L);
+            } catch (NumberFormatException e) {
+                player.sendMessage("§c请输入有效数字 (12 或 24)");
+            }
+        } else if (session.step == 3) {
+            // Confirmation
+            String confirm = msg.trim().toLowerCase();
+            if (confirm.equals("yes") || confirm.equals("y")) {
                 ItemStack held = player.getInventory().getItemInMainHand();
                 if (held.getType() == Material.AIR || !held.isSimilar(session.item)) {
                     player.sendMessage("§c物品已变更，上架取消");
@@ -283,23 +371,21 @@ public class MarketGuiListener implements Listener {
                     player.getInventory().setItemInMainHand(null);
                 }
 
+                double feePercent = (session.durationHours == 12) ? 2.5 : 5.0;
                 MarketItem mi = MarketItem.createPlayerListing(
                     uid, player.getName(),
                     new ItemStackData(session.item),
-                    session.pricePerUnit, session.quantity, hours);
+                        session.pricePerUnit, session.quantity,
+                        session.durationHours, feePercent);
                 plugin.getMarketManager().addItem(mi);
                 player.sendMessage("§a[市场] 上架成功! §e" + session.quantity + " §a个 "
-                    + session.item.getType().name() + " §e" + String.format("%.1f", session.pricePerUnit) + " §a点数/个");
-                cleanupListing(uid);
-            } catch (NumberFormatException e) {
-                player.sendMessage("§c请输入有效数字");
+                        + session.item.getType().name() + " §e" + String.format("%.1f", session.pricePerUnit) + " §a点数/个"
+                        + " §7(手续费" + feePercent + "%)");
+            } else {
+                player.sendMessage("§c已取消上架");
             }
+            cleanupListing(uid);
         }
-    }
-
-    private void cleanupListing(UUID uid) {
-        listingSessions.remove(uid);
-        plugin.removePendingChatAction(uid);
     }
 
     public void handleBuyChat(Player player, String msg, FunstartPlugin.PendingChatAction action) {
@@ -314,14 +400,12 @@ public class MarketGuiListener implements Listener {
             int qty = Integer.parseInt(msg.trim());
             if (qty <= 0) { player.sendMessage("§c已取消购买"); buyingSessions.remove(uid); return; }
 
-            List<MarketItem> all = plugin.getMarketManager().getItems();
-            if (bs.listIndex >= all.size() || !all.get(bs.listIndex).equals(bs.marketItem)) {
+            MarketItem mi = getMarketItemByFilteredIndex(bs.listIndex, bs.filter);
+            if (mi == null || !mi.equals(bs.marketItem)) {
                 player.sendMessage("§c该物品已下架");
                 buyingSessions.remove(uid);
                 return;
             }
-
-            MarketItem mi = all.get(bs.listIndex);
             if (qty > mi.getStock()) qty = mi.getStock();
 
             PlayerData pd = plugin.getPlayerDataManager().getPlayerData(player);
@@ -345,6 +429,132 @@ public class MarketGuiListener implements Listener {
         } catch (NumberFormatException e) {
             player.sendMessage("§c请输入有效数字");
         }
+    }
+
+    private void cleanupListing(UUID uid) {
+        listingSessions.remove(uid);
+        plugin.removePendingChatAction(uid);
+    }
+
+    private void executePurchase(Player player, BuyingSession bs) {
+        MarketItem current = getMarketItemByFilteredIndex(bs.listIndex, bs.filter);
+        if (current == null) {
+            player.sendMessage("§c该物品已下架");
+            buyingSessions.remove(player.getUniqueId());
+            return;
+        }
+
+        PlayerData pd = plugin.getPlayerDataManager().getPlayerData(player);
+        int qty = Math.min(bs.quantity, current.getStock());
+        double maxAfford = pd.getPoints() / current.getCurrentPrice();
+        if (qty > (int) maxAfford) qty = (int) maxAfford;
+        if (qty <= 0) {
+            player.sendMessage("§c库存不足或点数不足");
+            buyingSessions.remove(player.getUniqueId());
+            return;
+        }
+
+        // Block if buyer has no free inventory slot
+        if (!hasFreeSlots(player)) {
+            player.sendMessage("§c背包已满，无法购买");
+            buyingSessions.remove(player.getUniqueId());
+            return;
+        }
+
+        double totalCost = current.getCurrentPrice() * qty;
+        pd.deductPoints(totalCost);
+
+        ItemStack bought = current.getItemData().toItemStack().clone();
+        bought.setAmount(qty);
+        player.getInventory().addItem(bought).values().forEach(left ->
+            player.getWorld().dropItemNaturally(player.getLocation(), left));
+
+        current.setStock(current.getStock() - qty);
+        current.setSoldQuantity(current.getSoldQuantity() + qty);
+
+        // Record last trade price
+        String serialized = (String) current.getItemData().serialize().get("s");
+        plugin.getMarketManager().recordTrade(serialized, current.getCurrentPrice());
+
+        // Pay seller (use pending if offline) - with fee and overpricing tax
+        if (current.getType() == MarketItem.Type.PLAYER_LISTING) {
+            double fee = current.getFeePercent();
+
+            // Overpricing tax: if price > lastTradePrice by 50%, add 4.5% per 50% increment
+            double lastPrice = plugin.getMarketManager().getLastTradePrice(serialized);
+            if (lastPrice > 0 && current.getCurrentPrice() > lastPrice * 1.5) {
+                double ratio = current.getCurrentPrice() / lastPrice;
+                int overSteps = (int) ((ratio - 1.0) / 0.5);
+                double extraTax = overSteps * 4.5;
+                fee = Math.min(fee + extraTax, 50.0); // cap at 50%
+            }
+
+            double sellerEarn = totalCost * (1 - fee / 100.0);
+            Player seller = Bukkit.getPlayer(current.getSellerId());
+            if (seller != null && seller.isOnline()) {
+                PlayerData sellerData = plugin.getPlayerDataManager().getPlayerData(current.getSellerId());
+                if (sellerData != null) {
+                    sellerData.addPoints(sellerEarn);
+                    seller.sendMessage("§e[市场] §a你的物品已售出 §e" + qty + " §a个, 获得 §e"
+                            + String.format("%.1f", sellerEarn) + " §a点数 (手续费" + String.format("%.1f", fee) + "%)");
+                }
+            } else {
+                plugin.getMarketManager().addPendingPoints(current.getSellerId(), sellerEarn);
+            }
+        }
+
+        // Auto-delist if stock reaches 0
+        if (current.getType() == MarketItem.Type.PLAYER_LISTING && current.getStock() <= 0) {
+            plugin.getMarketManager().delistPlayerListing(current);
+        }
+
+        plugin.getMarketManager().save();
+        player.sendMessage("§a[市场] 购买成功! §e" + qty + " §a个 "
+            + current.getItemData().toItemStack().getType().name() + " §e"
+            + String.format("%.1f", totalCost) + " §a点数");
+
+        // Zanzhu profit sharing: 1.2% of total cost
+        double share = totalCost * 0.012;
+        if (share > 0) {
+            RankManager rankMgr = plugin.getRankManager();
+            Collection<? extends Player> onlinePlayers = Bukkit.getOnlinePlayers();
+            List<Player> zanzhuPlayers = new ArrayList<>();
+            for (Player p : onlinePlayers) {
+                PlayerRank rank = rankMgr.getRank(p.getUniqueId());
+                if (rank != null && rank.getType() == PlayerRank.RankType.ZANZHU) {
+                    zanzhuPlayers.add(p);
+                }
+            }
+            if (!zanzhuPlayers.isEmpty()) {
+                double each = share / zanzhuPlayers.size();
+                for (Player zp : zanzhuPlayers) {
+                    PlayerData zpData = plugin.getPlayerDataManager().getPlayerData(zp.getUniqueId());
+                    if (zpData != null && zpData.canEarnZanzhuToday()) {
+                        double earn = Math.min(each, 120 - zpData.getZanzhuDailyPoints());
+                        if (earn > 0) {
+                            zpData.addPoints(earn);
+                            zpData.setZanzhuDailyPoints(zpData.getZanzhuDailyPoints() + earn);
+                            zp.sendMessage("§e[市场] §a收到分红 §e" + String.format("%.1f", earn) + " §a点数");
+                        }
+                    }
+                }
+            } else {
+                double each = share / onlinePlayers.size();
+                for (Player p : onlinePlayers) {
+                    PlayerData pData = plugin.getPlayerDataManager().getPlayerData(p.getUniqueId());
+                    if (pData != null && pData.canEarnZanzhuToday()) {
+                        double earn = Math.min(each, 120 - pData.getZanzhuDailyPoints());
+                        if (earn > 0) {
+                            pData.addPoints(earn);
+                            pData.setZanzhuDailyPoints(pData.getZanzhuDailyPoints() + earn);
+                            p.sendMessage("§e[市场] §a收到分红 §e" + String.format("%.1f", earn) + " §a点数");
+                        }
+                    }
+                }
+            }
+        }
+
+        buyingSessions.remove(player.getUniqueId());
     }
 
     private void openBuyConfirm(Player player, MarketItem mi, int qty, int index, double totalCost) {
@@ -383,65 +593,17 @@ public class MarketGuiListener implements Listener {
         return false;
     }
 
-    private void executePurchase(Player player, BuyingSession bs) {
-        List<MarketItem> all = plugin.getMarketManager().getItems();
-        if (bs.listIndex >= all.size()) {
-            player.sendMessage("§c该物品已下架");
-            buyingSessions.remove(player.getUniqueId());
-            return;
+    public static class BuyingSession {
+        public MarketItem marketItem;
+        public int listIndex;
+        public int filter;
+        public int quantity;
+
+        public BuyingSession(MarketItem mi, int idx, int filter) {
+            this.marketItem = mi;
+            this.listIndex = idx;
+            this.filter = filter;
         }
-
-        MarketItem current = all.get(bs.listIndex);
-        PlayerData pd = plugin.getPlayerDataManager().getPlayerData(player);
-        int qty = Math.min(bs.quantity, current.getStock());
-        double maxAfford = pd.getPoints() / current.getCurrentPrice();
-        if (qty > (int) maxAfford) qty = (int) maxAfford;
-        if (qty <= 0) {
-            player.sendMessage("§c库存不足或点数不足");
-            buyingSessions.remove(player.getUniqueId());
-            return;
-        }
-
-        // Block if buyer has no free inventory slot
-        if (!hasFreeSlots(player)) {
-            player.sendMessage("§c背包已满，无法购买");
-            buyingSessions.remove(player.getUniqueId());
-            return;
-        }
-
-        double totalCost = current.getCurrentPrice() * qty;
-        pd.deductPoints(totalCost);
-
-        ItemStack bought = current.getItemData().toItemStack().clone();
-        bought.setAmount(qty);
-        player.getInventory().addItem(bought).values().forEach(left ->
-            player.getWorld().dropItemNaturally(player.getLocation(), left));
-
-        current.setStock(current.getStock() - qty);
-        current.setSoldQuantity(current.getSoldQuantity() + qty);
-
-        // Pay seller (use pending if offline)
-        if (current.getType() == MarketItem.Type.PLAYER_LISTING) {
-            double sellerEarn = totalCost * 0.95;
-            Player seller = Bukkit.getPlayer(current.getSellerId());
-            if (seller != null && seller.isOnline()) {
-                PlayerData sellerData = plugin.getPlayerDataManager().getPlayerData(current.getSellerId());
-                if (sellerData != null) {
-                    sellerData.addPoints(sellerEarn);
-                    seller.sendMessage("§e[市场] §a你的物品已售出 §e" + qty + " §a个, 获得 §e"
-                        + String.format("%.1f", sellerEarn) + " §a点数 (已扣5%手续费)");
-                }
-            } else {
-                // Seller offline → store in pending
-                plugin.getMarketManager().addPendingPoints(current.getSellerId(), sellerEarn);
-            }
-        }
-
-        plugin.getMarketManager().save();
-        player.sendMessage("§a[市场] 购买成功! §e" + qty + " §a个 "
-            + current.getItemData().toItemStack().getType().name() + " §e"
-            + String.format("%.1f", totalCost) + " §a点数");
-        buyingSessions.remove(player.getUniqueId());
     }
 
     // ========== Cancel listing on sneak unsneak / item change ==========
@@ -586,9 +748,23 @@ public class MarketGuiListener implements Listener {
     public static class MarketHolder implements InventoryHolder {
         private final Player player;
         private final int page;
-        public MarketHolder(Player player, int page) { this.player = player; this.page = page; }
+        private final int filter;
+
+        public MarketHolder(Player player, int page) {
+            this(player, page, 0);
+        }
+
+        public MarketHolder(Player player, int page, int filter) {
+            this.player = player;
+            this.page = page;
+            this.filter = filter;
+        }
         public Player getPlayer() { return player; }
         public int getPage() { return page; }
+
+        public int getFilter() {
+            return filter;
+        }
         @Override public Inventory getInventory() { return null; }
     }
 }

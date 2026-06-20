@@ -1,14 +1,15 @@
 package moe.hinakusoft.funstart.manager;
 
+import moe.hinakusoft.funstart.FunstartPlugin;
+import moe.hinakusoft.funstart.model.PlayerData;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
+
 import java.io.File;
 import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import moe.hinakusoft.funstart.FunstartPlugin;
-import moe.hinakusoft.funstart.model.PlayerData;
-import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.entity.Player;
 
 public class PlayerDataManager {
     private final FunstartPlugin plugin;
@@ -78,6 +79,7 @@ public class PlayerDataManager {
         data.setLastAutoFixTime(config.getLong("last-auto-fix-time", 0L));
         data.setTotalPointsEarned(config.getDouble("total-points-earned", 0.0));
         data.setHasPanelClock(config.getBoolean("has-panel-clock", false));
+        data.setZanzhuDailyPoints(config.getDouble("zanzhu-daily-points", 0.0));
         data.setTaskDate(config.getString("tasks.date", ""));
         int[] tp = new int[3];
         for (int i = 0; i < 3; i++) tp[i] = config.getInt("tasks.progress." + i, 0);
@@ -104,6 +106,7 @@ public class PlayerDataManager {
         config.set("last-auto-fix-time", data.getLastAutoFixTime());
         config.set("has-panel-clock", data.hasPanelClock());
         config.set("total-points-earned", data.getTotalPointsEarned());
+        config.set("zanzhu-daily-points", data.getZanzhuDailyPoints());
         config.set("tasks.date", data.getTaskDate());
         for (int i = 0; i < 3; i++) {
             config.set("tasks.progress." + i, data.getTaskProgress()[i]);

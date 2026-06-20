@@ -1,5 +1,6 @@
 package moe.hinakusoft.funstart;
 
+import moe.hinakusoft.funstart.command.FsrankCommand;
 import moe.hinakusoft.funstart.command.FstGetCommand;
 import moe.hinakusoft.funstart.custom.CustomItemManager;
 import moe.hinakusoft.funstart.custom.FSTFood;
@@ -51,11 +52,13 @@ extends JavaPlugin implements Listener {
     private RestApiServer restApiServer;
     private FeatureConfig featureConfig;
     private MultiThreadManager multiThreadManager;
+    private RankManager rankManager;
 
     public void onEnable() {
         saveDefaultConfig();
         this.featureConfig = new FeatureConfig(getDataFolder());
         this.multiThreadManager = new MultiThreadManager(this, this.featureConfig);
+        this.rankManager = new RankManager(this);
         this.playerDataManager = new PlayerDataManager(this);
         this.tpaManager = new TpaManager();
         this.warpManager = new WarpManager(this);
@@ -79,6 +82,7 @@ extends JavaPlugin implements Listener {
         this.marketManager = new moe.hinakusoft.funstart.manager.MarketManager(this);
         this.marketManager.load();
         regCmd("fsshop", new moe.hinakusoft.funstart.command.FsshopCommand(this), null);
+        regCmd("fsrank", new FsrankCommand(this), null);
         this.getServer().getPluginManager().registerEvents(new PlayerListener(this), this);
         this.getServer().getPluginManager().registerEvents(new TpaListener(this), this);
         this.getServer().getPluginManager().registerEvents(new ChainListener(this), this);
@@ -241,6 +245,11 @@ extends JavaPlugin implements Listener {
     public MultiThreadManager getMultiThreadManager() {
         return multiThreadManager;
     }
+
+    public RankManager getRankManager() {
+        return rankManager;
+    }
+
     public Map<UUID, PendingChatAction> getPendingChatActions() { return pendingChatActions; }
 
     // ---- Effective UUID (cross-account login) ----
@@ -514,15 +523,24 @@ extends JavaPlugin implements Listener {
             // Cleanup
             Bukkit.getScheduler().runTaskLater(this, () -> {
                 int count = 0;
+                int arrowCount = 0;
+                long nowCleanup = System.currentTimeMillis();
                 for (org.bukkit.World world : Bukkit.getWorlds()) {
                     for (org.bukkit.entity.Entity entity : world.getEntities()) {
                         if (entity instanceof org.bukkit.entity.Item) {
                             entity.remove();
                             count++;
+                        } else if (entity instanceof org.bukkit.entity.Arrow arrow) {
+                            if (arrow.isInBlock() && nowCleanup - arrow.getTicksLived() * 50L > 30000L) {
+                                arrow.remove();
+                                arrowCount++;
+                            }
                         }
                     }
                 }
-                Bukkit.broadcastMessage("§e[扫地机器人] §a已清理 §e" + count + " §a个掉落物");
+                String msg = "§e[扫地机器人] §a已清理 §e" + count + " §a个掉落物";
+                if (arrowCount > 0) msg += "§7, §e" + arrowCount + " §7支箭矢";
+                Bukkit.broadcastMessage(msg);
             }, 6000L);
         }, interval, interval);
     }

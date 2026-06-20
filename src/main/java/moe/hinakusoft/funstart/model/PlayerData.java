@@ -22,6 +22,7 @@ public class PlayerData {
     private boolean[] taskCompleted = new boolean[3];
     private String taskDate = "";
     private boolean hasPanelClock = false;
+    private double zanzhuDailyPoints = 0.0;
 
     public PlayerData(UUID uuid) {
         this.uuid = uuid;
@@ -96,4 +97,24 @@ public class PlayerData {
 
     public boolean hasPanelClock() { return hasPanelClock; }
     public void setHasPanelClock(boolean hasPanelClock) { this.hasPanelClock = hasPanelClock; }
+
+    public double getZanzhuDailyPoints() {
+        return zanzhuDailyPoints;
+    }
+
+    public void setZanzhuDailyPoints(double v) {
+        this.zanzhuDailyPoints = v;
+    }
+
+    public void addZanzhuDailyPoints(double v) {
+        this.zanzhuDailyPoints += v;
+    }
+
+    public boolean canEarnZanzhuToday() {
+        return zanzhuDailyPoints < 120.0;
+    }
+
+    public double getZanzhuRemainingToday() {
+        return Math.max(0, 120.0 - zanzhuDailyPoints);
+    }
 }

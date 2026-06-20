@@ -28,6 +28,7 @@ public class MarketItem {
     // Player listing fields
     private int originalQuantity;
     private int soldQuantity;
+    private double feePercent; // listing fee % (2.5 for 12h, 5 for 24h)
 
     public MarketItem() {}
 
@@ -55,7 +56,7 @@ public class MarketItem {
     // Player listing constructor
     public static MarketItem createPlayerListing(UUID sellerId, String sellerName,
                                                   ItemStackData itemData, double pricePerUnit,
-                                                  int quantity, long durationHours) {
+                                                 int quantity, long durationHours, double feePercent) {
         MarketItem m = new MarketItem();
         m.type = Type.PLAYER_LISTING;
         m.sellerId = sellerId;
@@ -67,6 +68,7 @@ public class MarketItem {
         m.maxStock = quantity;
         m.originalQuantity = quantity;
         m.soldQuantity = 0;
+        m.feePercent = feePercent;
         m.listedTime = System.currentTimeMillis();
         if (durationHours > 0) {
             m.expireTime = System.currentTimeMillis() + durationHours * 3600000L;
@@ -101,29 +103,6 @@ public class MarketItem {
         return expireTime > 0 && System.currentTimeMillis() >= expireTime;
     }
 
-    public Map<String, Object> serialize() {
-        Map<String, Object> map = new HashMap<>();
-        map.put("type", type.name());
-        map.put("sellerId", sellerId.toString());
-        map.put("sellerName", sellerName);
-        map.put("itemData", itemData.serialize());
-        map.put("basePrice", basePrice);
-        map.put("currentPrice", currentPrice);
-        map.put("stock", stock);
-        map.put("maxStock", maxStock);
-        map.put("priceUpCount", priceUpCount);
-        map.put("priceDownCount", priceDownCount);
-        map.put("ifBuyAllRestoreUp", ifBuyAllRestoreUp);
-        map.put("ifNotBuyAllRestoreDown", ifNotBuyAllRestoreDown);
-        map.put("restoreInterval", restoreInterval);
-        map.put("lastRestoreTime", lastRestoreTime);
-        map.put("expireTime", expireTime);
-        map.put("listedTime", listedTime);
-        map.put("originalQuantity", originalQuantity);
-        map.put("soldQuantity", soldQuantity);
-        return map;
-    }
-
     @SuppressWarnings("unchecked")
     public static MarketItem deserialize(Map<String, Object> map) {
         MarketItem m = new MarketItem();
@@ -145,7 +124,32 @@ public class MarketItem {
         m.listedTime = map.containsKey("listedTime") ? ((Number) map.get("listedTime")).longValue() : 0;
         m.originalQuantity = map.containsKey("originalQuantity") ? ((Number) map.get("originalQuantity")).intValue() : m.stock;
         m.soldQuantity = map.containsKey("soldQuantity") ? ((Number) map.get("soldQuantity")).intValue() : 0;
+        m.feePercent = map.containsKey("feePercent") ? ((Number) map.get("feePercent")).doubleValue() : 5.0;
         return m;
+    }
+
+    public Map<String, Object> serialize() {
+        Map<String, Object> map = new HashMap<>();
+        map.put("type", type.name());
+        map.put("sellerId", sellerId.toString());
+        map.put("sellerName", sellerName);
+        map.put("itemData", itemData.serialize());
+        map.put("basePrice", basePrice);
+        map.put("currentPrice", currentPrice);
+        map.put("stock", stock);
+        map.put("maxStock", maxStock);
+        map.put("priceUpCount", priceUpCount);
+        map.put("priceDownCount", priceDownCount);
+        map.put("ifBuyAllRestoreUp", ifBuyAllRestoreUp);
+        map.put("ifNotBuyAllRestoreDown", ifNotBuyAllRestoreDown);
+        map.put("restoreInterval", restoreInterval);
+        map.put("lastRestoreTime", lastRestoreTime);
+        map.put("expireTime", expireTime);
+        map.put("listedTime", listedTime);
+        map.put("originalQuantity", originalQuantity);
+        map.put("soldQuantity", soldQuantity);
+        map.put("feePercent", feePercent);
+        return map;
     }
 
     // Getters
@@ -165,6 +169,10 @@ public class MarketItem {
     public long getLastRestoreTime() { return lastRestoreTime; }
     public long getExpireTime() { return expireTime; }
     public long getListedTime() { return listedTime; }
+
+    public double getFeePercent() {
+        return feePercent;
+    }
 
     public void setStock(int stock) { this.stock = stock; }
     public void setSoldQuantity(int sq) { this.soldQuantity = sq; }

@@ -1,5 +1,5 @@
 name: Funstart
-version: 2.7.0
+version: 2.7.1
 main: moe.hinakusoft.funstart.FunstartPlugin
 api-version: '1.21'
 prefix: Funstart
@@ -11,3 +11,7 @@ commands:
   fsshop:
     description: 服务器商店管理 (OP)
     usage: /fsshop new <basevalue> <dailycount> <up%> <down%> <restoretime_h>
+  fsrank:
+    description: 设置玩家头衔 (OP)
+    usage: /fsrank <玩家> <头衔> [类型]
+    permission: funstart.admin
